@@ -23,12 +23,9 @@ export default function OnboardingPage() {
       return
     }
 
-    // 1. Create farm
-    const { data: farm, error: farmError } = await supabase
-      .from('farms')
-      .insert({ name: farmName, timezone: 'Europe/Dublin' })
-      .select()
-      .single()
+    const { data: farmId, error: farmError } = await supabase.rpc('create_my_farm', {
+      farm_name: farmName.trim(),
+    })
 
     if (farmError) {
       setError(farmError.message)
@@ -36,23 +33,11 @@ export default function OnboardingPage() {
       return
     }
 
-    // 2. Make current user the owner
-    const { error: memberError } = await supabase
-      .from('farm_members')
-      .insert({ farm_id: farm.id, user_id: user.id, role: 'owner' })
-
-    if (memberError) {
-      setError(memberError.message)
+    if (!farmId) {
+      setError('Farm was not created')
       setLoading(false)
       return
     }
-
-    // 3. Create default groups (Irish terms)
-    await supabase.from('groups').insert([
-      { farm_id: farm.id, name: 'Store', type: 'store', color: '#3b82f6' },
-      { farm_id: farm.id, name: 'Finisher', type: 'finishing', color: '#16a34a' },
-      { farm_id: farm.id, name: 'Grazing', type: 'grazing', color: '#ca8a04' },
-    ])
 
     router.push('/home')
     router.refresh()
