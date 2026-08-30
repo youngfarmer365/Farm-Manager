@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next'
+import { Suspense } from 'react'
 import './globals.css'
 import { AppGate } from '@/components/access/AppGate'
 import { BackBar } from '@/components/layout/BackBar'
@@ -36,7 +37,9 @@ export default function RootLayout({
       <body className="min-h-screen bg-slate-50 text-slate-900 antialiased">
         <AppGate>
           <BackBar />
-          {children}
+          <Suspense fallback={<div className="p-6 font-bold">Loading…</div>}>
+            {children}
+          </Suspense>
         </AppGate>
       </body>
     </html>
