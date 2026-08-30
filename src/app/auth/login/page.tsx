@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { getFarmAccess, homePathForRole } from '@/lib/farm-access'
 import { LogoutButton } from '@/components/layout/LogoutButton'
+import { getStayLoggedIn, setStayLoggedIn } from '@/lib/session-pref'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
@@ -14,12 +15,13 @@ export default function LoginPage() {
   const [message, setMessage] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [magic, setMagic] = useState(false)
+  const [stay, setStay] = useState(true)
   const [sessionEmail, setSessionEmail] = useState<string | null>(null)
   const [sessionRole, setSessionRole] = useState<string | null>(null)
   const router = useRouter()
-  const supabase = createClient()
 
   useEffect(() => {
+    setStay(getStayLoggedIn())
     getFarmAccess().then((a) => {
       if (a.userId) {
         setSessionEmail(a.email)
@@ -40,6 +42,8 @@ export default function LoginPage() {
     setLoading(true)
     setError(null)
     setMessage(null)
+    setStayLoggedIn(stay)
+    const supabase = createClient()
 
     if (magic) {
       const { error } = await supabase.auth.signInWithOtp({
@@ -114,6 +118,15 @@ export default function LoginPage() {
               />
             </div>
           )}
+          <label className="flex min-h-[48px] items-center gap-3 rounded-xl border-2 border-slate-300 bg-slate-50 px-3">
+            <input
+              type="checkbox"
+              checked={stay}
+              onChange={(e) => setStay(e.target.checked)}
+              className="h-5 w-5"
+            />
+            <span className="text-sm font-bold">Stay logged in on this phone</span>
+          </label>
           {error && <p className="text-sm text-red-600">{error}</p>}
           {message && <p className="text-sm font-semibold text-brand-800">{message}</p>}
           <button

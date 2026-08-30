@@ -27,6 +27,10 @@ export function isYardStaff(role: FarmRole | null | undefined) {
   return role === 'basic' || role === 'worker' || role === 'viewer'
 }
 
+export function hideFeedPrices(role: FarmRole | null | undefined) {
+  return isYardStaff(role)
+}
+
 export function homePathForRole(role: FarmRole | null | undefined) {
   return isYardStaff(role) ? '/m' : '/home'
 }

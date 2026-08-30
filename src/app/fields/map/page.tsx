@@ -6,22 +6,15 @@ import dynamic from 'next/dynamic'
 import { AppHeader } from '@/components/layout/AppHeader'
 import { getFarmAccess } from '@/lib/farm-access'
 import { createClient } from '@/lib/supabase/client'
+import { loadFarmFields, type FarmFieldRow } from '@/lib/fields'
 
 const FarmMap = dynamic(() => import('@/components/map/FarmMap').then((m) => m.FarmMap), {
   ssr: false,
 })
 
-interface Field {
-  id: string
-  name: string
-  area_ha: number | null
-  color: string | null
-  geojson: unknown
-}
-
 export default function FieldsMapPage() {
   const [farmId, setFarmId] = useState<string | null>(null)
-  const [fields, setFields] = useState<Field[]>([])
+  const [fields, setFields] = useState<FarmFieldRow[]>([])
   const [name, setName] = useState('')
   const [color, setColor] = useState('#15803d')
   const [error, setError] = useState<string | null>(null)
@@ -30,14 +23,10 @@ export default function FieldsMapPage() {
     const a = await getFarmAccess()
     if (!a.farmId) return
     setFarmId(a.farmId)
-    const supabase = createClient()
-    const { data, error } = await supabase
-      .from('farm_fields')
-      .select('id, name, area_ha, color, geojson')
-      .eq('farm_id', a.farmId)
-      .order('name')
-    if (error) setError(error.message)
-    setFields((data as Field[]) || [])
+    const loaded = await loadFarmFields(a.farmId)
+    if (loaded.error) setError(loaded.error)
+    else setError(null)
+    setFields(loaded.data)
   }
 
   useEffect(() => {
@@ -87,6 +76,11 @@ export default function FieldsMapPage() {
               >
                 <span className="h-8 w-8 rounded-md border" style={{ background: f.color || '#15803d' }} />
                 <span className="font-bold">{f.name}</span>
+                {f.area_ha != null && (
+                  <span className="ml-auto text-sm font-semibold text-slate-600">
+                    {Number(f.area_ha).toFixed(2)} ha
+                  </span>
+                )}
               </Link>
             </li>
           ))}

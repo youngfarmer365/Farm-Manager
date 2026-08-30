@@ -14,7 +14,6 @@ interface Job {
   status: string
   scheduled_on: string | null
   completed_on: string | null
-  notes: string | null
 }
 
 function typeLabel(id: string) {
@@ -32,7 +31,7 @@ export default function JobsPage() {
     const supabase = createClient()
     const { data, error } = await supabase
       .from('land_jobs')
-      .select('id, title, job_type, status, scheduled_on, completed_on, notes')
+      .select('id, title, job_type, status, scheduled_on, completed_on')
       .eq('farm_id', a.farmId)
       .order('scheduled_on', { ascending: true, nullsFirst: false })
     if (error) setError(error.message)
@@ -47,23 +46,26 @@ export default function JobsPage() {
     tab === 'pending' ? j.status !== 'completed' && j.status !== 'cancelled' : j.status === 'completed'
   )
 
+  const tile = 'rounded-2xl border-4 p-4 text-left'
   return (
     <div className="min-h-screen bg-slate-200">
-      <AppHeader
-        title="Jobs"
-        extra={
-          <Link
-            href="/jobs/new"
-            className="inline-flex min-h-[44px] items-center rounded-xl bg-brand-700 px-4 text-sm font-bold text-white"
-          >
-            New job
-          </Link>
-        }
-      />
+      <AppHeader title="Jobs" />
       <main className="mx-auto max-w-3xl space-y-4 p-4">
-        <p className="text-base font-semibold text-slate-700">
-          A job can cover several fields. It stays pending until you mark it complete.
-        </p>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <Link href="/jobs/new" className={tile + ' border-brand-900 bg-brand-700 text-white'}>
+            <div className="text-lg font-bold">New job</div>
+            <div className="text-sm font-semibold text-brand-50">Several fields, pending until done</div>
+          </Link>
+          <Link href="/jobs/spray" className={tile + ' border-slate-700 bg-white'}>
+            <div className="text-lg font-bold">Spray</div>
+            <div className="text-sm font-semibold text-slate-600">Tank, mix, fill sheet, inventory</div>
+          </Link>
+          <Link href="/jobs/inventory" className={tile + ' border-slate-700 bg-white'}>
+            <div className="text-lg font-bold">Chemical inventory</div>
+            <div className="text-sm font-semibold text-slate-600">Live stock on hand</div>
+          </Link>
+        </div>
+
         <div className="grid grid-cols-2 gap-2">
           {(['pending', 'completed'] as const).map((t) => (
             <button
@@ -80,7 +82,7 @@ export default function JobsPage() {
         </div>
         {error && (
           <p className="rounded-xl border-2 border-red-700 bg-red-50 p-3 font-semibold text-red-800">
-            {error}. Run SQL file 005_jobs_fields_planning.sql in Supabase if the jobs table is missing.
+            {error}
           </p>
         )}
         <ul className="space-y-3">
@@ -91,10 +93,7 @@ export default function JobsPage() {
           )}
           {shown.map((j) => (
             <li key={j.id}>
-              <Link
-                href={`/jobs/${j.id}`}
-                className="block rounded-2xl border-4 border-slate-600 bg-white p-4"
-              >
+              <Link href={j.job_type === 'spray' ? `/jobs/spray?job=${j.id}` : `/jobs/${j.id}`} className="block rounded-2xl border-4 border-slate-600 bg-white p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <div className="text-xl font-bold">{j.title}</div>

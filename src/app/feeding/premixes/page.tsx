@@ -1,13 +1,15 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { getFarmAccess, hideFeedPrices } from '@/lib/farm-access'
 import Link from 'next/link'
 
 interface Ingredient {
   id: string
   name: string
   premix_diet_id: string | null
+  cost_per_unit: number | null
 }
 
 interface Line {
@@ -15,52 +17,67 @@ interface Line {
   percent: string
 }
 
+function premixCostPerKg(lines: Line[], ingredients: Ingredient[]) {
+  return lines.reduce((sum, line) => {
+    const ing = ingredients.find((i) => i.id === line.ingredient_id)
+    const pct = Number(line.percent) || 0
+    const unitCost = Number(ing?.cost_per_unit) || 0
+    return sum + (pct / 100) * unitCost
+  }, 0)
+}
+
 export default function PremixesPage() {
   const [farmId, setFarmId] = useState<string | null>(null)
   const [ingredients, setIngredients] = useState<Ingredient[]>([])
-  const [premixes, setPremixes] = useState<{ id: string; name: string }[]>([])
+  const [premixes, setPremixes] = useState<{ id: string; name: string; cost_per_unit?: number | null }[]>([])
   const [name, setName] = useState('')
-  const [cost, setCost] = useState('')
   const [lines, setLines] = useState<Line[]>([{ ingredient_id: '', percent: '' }])
   const [error, setError] = useState<string | null>(null)
+  const [hidePrices, setHidePrices] = useState(false)
   const supabase = createClient()
 
   async function load() {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-    if (!user) return
-    const { data: membership } = await supabase
-      .from('farm_members')
-      .select('farm_id')
-      .eq('user_id', user.id)
-      .limit(1)
-      .maybeSingle()
-    if (!membership) return
-    setFarmId(membership.farm_id)
+    const access = await getFarmAccess()
+    if (!access.farmId) return
+    setFarmId(access.farmId)
+    setHidePrices(hideFeedPrices(access.role))
 
     const [{ data: ing }, { data: diets }] = await Promise.all([
       supabase
         .from('ingredients')
-        .select('id, name, premix_diet_id')
-        .eq('farm_id', membership.farm_id)
+        .select('id, name, premix_diet_id, cost_per_unit')
+        .eq('farm_id', access.farmId)
         .eq('is_active', true)
         .order('name'),
       supabase
         .from('diets')
         .select('id, name')
-        .eq('farm_id', membership.farm_id)
+        .eq('farm_id', access.farmId)
         .eq('diet_type', 'premix')
         .eq('is_active', true)
         .order('name'),
     ])
-    setIngredients((ing as Ingredient[]) || [])
-    setPremixes(diets || [])
+    const list = (ing as Ingredient[]) || []
+    setIngredients(list)
+
+    const dietRows = diets || []
+    const withCost = dietRows.map((d) => {
+      const asIng = list.find((i) => i.premix_diet_id === d.id)
+      return { ...d, cost_per_unit: asIng?.cost_per_unit ?? null }
+    })
+    setPremixes(withCost)
   }
 
   useEffect(() => {
     load()
   }, [])
+
+  const calculated = useMemo(() => premixCostPerKg(lines, ingredients), [lines, ingredients])
+  const missingPrice = lines.some((l) => {
+    if (!l.ingredient_id || !(Number(l.percent) > 0)) return false
+    const ing = ingredients.find((i) => i.id === l.ingredient_id)
+    return !ing || !Number(ing.cost_per_unit)
+  })
 
   async function createPremix(e: React.FormEvent) {
     e.preventDefault()
@@ -103,25 +120,23 @@ export default function PremixesPage() {
       return
     }
 
-    // Premix also appears as an ingredient for use in other diets
+    const cost = Number(calculated.toFixed(6))
     const { error: iErr } = await supabase.from('ingredients').insert({
       farm_id: farmId,
       name: name.trim(),
       unit: 'kg',
-      cost_per_unit: cost ? Number(cost) : 0,
+      cost_per_unit: cost,
       premix_diet_id: diet.id,
-      notes: 'Premix',
+      notes: 'Premix — cost from ingredient % × €/kg',
     })
     if (iErr) setError(iErr.message)
     else {
       setName('')
-      setCost('')
       setLines([{ ingredient_id: '', percent: '' }])
       await load()
     }
   }
 
-  // Only non-premix ingredients as components (avoid nesting confusion for now)
   const baseIngredients = ingredients.filter((i) => !i.premix_diet_id)
 
   return (
@@ -137,8 +152,7 @@ export default function PremixesPage() {
 
       <main className="max-w-2xl mx-auto px-4 py-8 space-y-6">
         <p className="text-sm text-slate-600">
-          Build a premix, mix it on its own when needed. It is also added as an ingredient so you can
-          put it into starter/finisher diets.
+          Price of the mix is calculated from each ingredient’s €/kg × the percentage used.
         </p>
 
         <form onSubmit={createPremix} className="bg-white rounded-xl border p-5 space-y-3 shadow-sm">
@@ -149,47 +163,55 @@ export default function PremixesPage() {
             placeholder="Premix name"
             className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
           />
-          <input
-            type="number"
-            step="0.0001"
-            value={cost}
-            onChange={(e) => setCost(e.target.value)}
-            placeholder="Cost €/kg of finished premix (optional)"
-            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-          />
 
-          {lines.map((line, idx) => (
-            <div key={idx} className="flex gap-2">
-              <select
-                value={line.ingredient_id}
-                onChange={(e) => {
-                  const next = [...lines]
-                  next[idx] = { ...next[idx], ingredient_id: e.target.value }
-                  setLines(next)
-                }}
-                className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm"
-              >
-                <option value="">Ingredient…</option>
-                {baseIngredients.map((i) => (
-                  <option key={i.id} value={i.id}>
-                    {i.name}
-                  </option>
-                ))}
-              </select>
-              <input
-                type="number"
-                step="0.1"
-                placeholder="%"
-                value={line.percent}
-                onChange={(e) => {
-                  const next = [...lines]
-                  next[idx] = { ...next[idx], percent: e.target.value }
-                  setLines(next)
-                }}
-                className="w-24 rounded-md border border-slate-300 px-3 py-2 text-sm"
-              />
-            </div>
-          ))}
+          {lines.map((line, idx) => {
+            const ing = ingredients.find((i) => i.id === line.ingredient_id)
+            const lineCost =
+              ((Number(line.percent) || 0) / 100) * Number(ing?.cost_per_unit || 0)
+            return (
+              <div key={idx} className="space-y-1">
+                <div className="flex gap-2">
+                  <select
+                    value={line.ingredient_id}
+                    onChange={(e) => {
+                      const next = [...lines]
+                      next[idx] = { ...next[idx], ingredient_id: e.target.value }
+                      setLines(next)
+                    }}
+                    className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  >
+                    <option value="">Ingredient…</option>
+                    {baseIngredients.map((i) => (
+                      <option key={i.id} value={i.id}>
+                        {i.name}
+                        {!hidePrices && Number(i.cost_per_unit)
+                          ? ` · €${Number(i.cost_per_unit).toFixed(4)}/kg`
+                          : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="number"
+                    step="0.1"
+                    placeholder="%"
+                    value={line.percent}
+                    onChange={(e) => {
+                      const next = [...lines]
+                      next[idx] = { ...next[idx], percent: e.target.value }
+                      setLines(next)
+                    }}
+                    className="w-24 rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  />
+                </div>
+                {!hidePrices && line.ingredient_id && (
+                  <p className="text-xs text-slate-500">
+                    {(Number(line.percent) || 0).toFixed(1)}% × €
+                    {Number(ing?.cost_per_unit || 0).toFixed(4)} = €{lineCost.toFixed(4)} / kg of mix
+                  </p>
+                )}
+              </div>
+            )
+          })}
           <button
             type="button"
             onClick={() => setLines([...lines, { ingredient_id: '', percent: '' }])}
@@ -197,6 +219,12 @@ export default function PremixesPage() {
           >
             + line (keeps order)
           </button>
+          {!hidePrices && (
+            <div className="rounded-lg border-2 border-brand-800 bg-brand-50 px-3 py-2 text-sm font-bold">
+              Mix cost: €{calculated.toFixed(4)} / kg
+              {missingPrice ? ' (set ingredient prices first for a full figure)' : ''}
+            </div>
+          )}
           {error && <p className="text-sm text-red-600">{error}</p>}
           <button type="submit" className="rounded-lg bg-brand-600 text-white px-4 py-2 text-sm">
             Save premix
@@ -208,6 +236,11 @@ export default function PremixesPage() {
             <li key={p.id} className="px-4 py-3 text-sm font-medium">
               {p.name}
               <span className="text-xs text-slate-500 font-normal ml-2">also in ingredients list</span>
+              {!hidePrices && p.cost_per_unit != null && (
+                <span className="text-xs text-slate-500 font-normal ml-2">
+                  €{Number(p.cost_per_unit).toFixed(4)}/kg
+                </span>
+              )}
             </li>
           ))}
         </ul>

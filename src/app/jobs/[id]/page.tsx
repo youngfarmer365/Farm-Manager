@@ -87,6 +87,7 @@ export default function JobDetailPage() {
   }
 
   const typeLabel = JOB_TYPES.find((t) => t.id === job.job_type)?.label || job.job_type
+  const sprayHref = `/jobs/spray?job=${job.id}&fields=${fields.map((f) => f.id).join(',')}`
 
   return (
     <div className="min-h-screen bg-slate-200">
@@ -111,6 +112,14 @@ export default function JobDetailPage() {
             ))}
           </ul>
         </div>
+        {job.job_type === 'spray' && (
+          <Link
+            href={sprayHref}
+            className="block w-full min-h-[52px] rounded-2xl bg-brand-700 p-3 text-center text-lg font-bold text-white"
+          >
+            Open spray worksheet
+          </Link>
+        )}
         {error && <p className="font-semibold text-red-700">{error}</p>}
         {job.status !== 'completed' ? (
           <button

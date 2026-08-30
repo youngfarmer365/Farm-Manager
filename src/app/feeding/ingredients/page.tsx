@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
+import { getFarmAccess, hideFeedPrices } from '@/lib/farm-access'
 
 interface Ingredient {
   id: string
@@ -18,25 +19,18 @@ export default function IngredientsPage() {
   const [name, setName] = useState('')
   const [cost, setCost] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [hidePrices, setHidePrices] = useState(false)
   const supabase = createClient()
 
   async function load() {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-    if (!user) return
-    const { data: membership } = await supabase
-      .from('farm_members')
-      .select('farm_id')
-      .eq('user_id', user.id)
-      .limit(1)
-      .maybeSingle()
-    if (!membership) return
-    setFarmId(membership.farm_id)
+    const access = await getFarmAccess()
+    if (!access.farmId) return
+    setFarmId(access.farmId)
+    setHidePrices(hideFeedPrices(access.role))
     const { data } = await supabase
       .from('ingredients')
       .select('*')
-      .eq('farm_id', membership.farm_id)
+      .eq('farm_id', access.farmId)
       .eq('is_active', true)
       .order('name')
     setItems((data as Ingredient[]) || [])
@@ -89,14 +83,16 @@ export default function IngredientsPage() {
             placeholder="Name"
             className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
           />
-          <input
-            type="number"
-            step="0.0001"
-            value={cost}
-            onChange={(e) => setCost(e.target.value)}
-            placeholder="€ / kg"
-            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-          />
+          {!hidePrices && (
+            <input
+              type="number"
+              step="0.0001"
+              value={cost}
+              onChange={(e) => setCost(e.target.value)}
+              placeholder="€ / kg"
+              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+            />
+          )}
           {error && <p className="text-sm text-red-600">{error}</p>}
           <button type="submit" className="rounded-lg bg-brand-600 text-white px-4 py-2 text-sm">
             Add ingredient
@@ -111,9 +107,11 @@ export default function IngredientsPage() {
                 {i.premix_diet_id && (
                   <span className="text-xs text-slate-400 ml-2">(premix)</span>
                 )}
-                <span className="text-slate-500 ml-2">
-                  €{Number(i.cost_per_unit || 0).toFixed(4)}/kg
-                </span>
+                {!hidePrices && (
+                  <span className="text-slate-500 ml-2">
+                    €{Number(i.cost_per_unit || 0).toFixed(4)}/kg
+                  </span>
+                )}
               </div>
               <button
                 type="button"

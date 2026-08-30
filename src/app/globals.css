@@ -19,6 +19,30 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Leaflet adds .leaflet-container onto the SAME div we size inline.
+   Never set height: 100% here — that collapses the map to a 8px border line. */
+.leaflet-container {
+  width: 100%;
+  font-family: inherit;
+  background: #64748b;
+  z-index: 0;
+  touch-action: pan-x pan-y;
+}
+
+.leaflet-pane,
+.leaflet-map-pane {
+  z-index: 1;
+}
+
+.leaflet-control-container {
+  z-index: 10;
+}
+
+.leaflet-top,
+.leaflet-bottom {
+  z-index: 10;
+}
+
 /* Subtle focus for keyboard / scanner users */
 :focus-visible {
   outline: 2px solid var(--brand);

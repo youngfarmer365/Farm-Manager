@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { getFarmAccess } from '@/lib/farm-access'
 import { AppHeader } from '@/components/layout/AppHeader'
 import { currentYear, yearOptions } from '@/lib/crops'
+import { loadFarmFields } from '@/lib/fields'
 
 interface Field {
   id: string
@@ -33,19 +34,13 @@ export default function FieldsHubPage() {
     getFarmAccess().then(async (a) => {
       if (!a.farmId) return
       const supabase = createClient()
-      const [{ data: f, error: fErr }, { data: c }] = await Promise.all([
-        supabase
-          .from('farm_fields')
-          .select('id, name, area_ha, color, current_crop')
-          .eq('farm_id', a.farmId)
-          .order('name'),
-        supabase
-          .from('field_crops')
-          .select('field_id, crop, color, status, year')
-          .eq('farm_id', a.farmId),
-      ])
-      if (fErr) setError(fErr.message)
-      setFields((f as Field[]) || [])
+      const loaded = await loadFarmFields(a.farmId)
+      const { data: c } = await supabase
+        .from('field_crops')
+        .select('field_id, crop, color, status, year')
+        .eq('farm_id', a.farmId)
+      if (loaded.error) setError(loaded.error)
+      setFields(loaded.data as Field[])
       setCrops((c as Crop[]) || [])
     })
   }, [])

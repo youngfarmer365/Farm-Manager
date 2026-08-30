@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import type { ReactNode } from 'react'
+import { useRouter } from 'next/navigation'
 import { LogoutButton } from '@/components/layout/LogoutButton'
 
 const nav =
@@ -14,6 +15,7 @@ export function AppHeader({
   title: string
   extra?: ReactNode
 }) {
+  const router = useRouter()
   return (
     <header className="border-b-4 border-slate-600 bg-white px-4 py-3 print:hidden">
       <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3">
@@ -24,6 +26,9 @@ export function AppHeader({
           <h1 className="text-2xl font-bold text-slate-900">{title}</h1>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <button type="button" onClick={() => router.back()} className={nav}>
+            ← Back
+          </button>
           <Link href="/home" className={nav}>
             Home
           </Link>

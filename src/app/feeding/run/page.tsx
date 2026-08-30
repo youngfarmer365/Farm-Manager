@@ -11,6 +11,7 @@ import {
   type IngredientPercent,
   type Phase,
 } from '@/lib/feeding'
+import { getFarmAccess, hideFeedPrices } from '@/lib/farm-access'
 
 interface Load {
   id: string
@@ -69,27 +70,20 @@ export default function FeedingRunPage() {
   const [finishedAt, setFinishedAt] = useState<string | null>(null)
   const [savedRunId, setSavedRunId] = useState<string | null>(null)
   const [summaryPens, setSummaryPens] = useState<SummaryPen[]>([])
+  const [hidePrices, setHidePrices] = useState(false)
 
   const supabase = createClient()
 
   useEffect(() => {
     async function init() {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
-      if (!user) return
-      const { data: membership } = await supabase
-        .from('farm_members')
-        .select('farm_id')
-        .eq('user_id', user.id)
-        .limit(1)
-        .maybeSingle()
-      if (!membership) return
-      setFarmId(membership.farm_id)
+      const access = await getFarmAccess()
+      if (!access.farmId) return
+      setFarmId(access.farmId)
+      setHidePrices(hideFeedPrices(access.role))
       const { data } = await supabase
         .from('feed_loads')
         .select('id, name, program_id')
-        .eq('farm_id', membership.farm_id)
+        .eq('farm_id', access.farmId)
         .order('created_at', { ascending: false })
       setLoads((data as Load[]) || [])
     }
@@ -465,7 +459,9 @@ export default function FeedingRunPage() {
         </header>
         <main className="max-w-2xl mx-auto px-4 py-8 space-y-4">
           <p className="text-sm text-slate-600">
-            Load → buffer → fill → pens → summary (kg/head, €/head, history & stock).
+            Load → buffer → fill → pens → summary (kg/head
+            {hidePrices ? '' : ', €/head'}
+            , history & stock).
           </p>
           {error && (
             <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-3">
@@ -685,12 +681,15 @@ export default function FeedingRunPage() {
             </div>
             <div className="flex justify-between font-medium">
               <span>Fill total</span>
-              <span>{totalKg.toFixed(0)} kg · €{totalCost.toFixed(2)}</span>
+              <span>
+                {totalKg.toFixed(0)} kg
+                {!hidePrices && <> · €{totalCost.toFixed(2)}</>}
+              </span>
             </div>
           </div>
 
           <div className="bg-white rounded-xl border p-4">
-            <h2 className="font-semibold mb-2">Pens (intake & cost)</h2>
+            <h2 className="font-semibold mb-2">{hidePrices ? 'Pens (intake)' : 'Pens (intake & cost)'}</h2>
             <ul className="space-y-3 text-sm">
               {pensToShow.map((p) => {
                 const diff = Number(p.actual_kg) - Number(p.planned_kg)
@@ -714,10 +713,10 @@ export default function FeedingRunPage() {
                       {p.kg_per_head != null && (
                         <> · {Number(p.kg_per_head).toFixed(1)} kg/head</>
                       )}
-                      {p.cost_per_head != null && (
+                      {!hidePrices && p.cost_per_head != null && (
                         <> · €{Number(p.cost_per_head).toFixed(2)}/head</>
                       )}
-                      {p.cost_allocated > 0 && (
+                      {!hidePrices && p.cost_allocated > 0 && (
                         <> · €{Number(p.cost_allocated).toFixed(2)} pen total</>
                       )}
                     </div>
@@ -726,8 +725,10 @@ export default function FeedingRunPage() {
               })}
             </ul>
             <p className="text-[11px] text-slate-400 mt-2">
-              Head count = active animals in that pen at finish. € from ingredient costs on the mix.
-              Once/day ≈ € per head per day for that day.
+              Head count = active animals in that pen at finish.
+              {hidePrices
+                ? ''
+                : ' € from ingredient costs on the mix. Once/day ≈ € per head per day for that day.'}
             </p>
           </div>
 
@@ -741,7 +742,8 @@ export default function FeedingRunPage() {
                   <li key={r.ingredientId} className="flex justify-between">
                     <span>{r.name}</span>
                     <span className="tabular-nums">
-                      {r.kg.toFixed(1)} kg · €{r.cost.toFixed(2)}
+                      {r.kg.toFixed(1)} kg
+                      {!hidePrices && <> · €{r.cost.toFixed(2)}</>}
                     </span>
                   </li>
                 ))}
