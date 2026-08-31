@@ -6,6 +6,7 @@ export const CROP_COLOURS: { crop: string; color: string }[] = [
   { crop: 'Winter wheat', color: '#b45309' },
   { crop: 'Oats', color: '#92400e' },
   { crop: 'Maize', color: '#65a30d' },
+  { crop: 'Potatoes', color: '#c2410c' },
   { crop: 'Beet', color: '#be123c' },
   { crop: 'Kale / forage', color: '#166534' },
   { crop: 'Catch crop', color: '#0f766e' },
