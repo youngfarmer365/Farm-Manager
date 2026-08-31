@@ -63,6 +63,11 @@ export function FarmMap({
   const [msg, setMsg] = useState<string | null>(null)
   const [ready, setReady] = useState(false)
   const [status, setStatus] = useState('Loading map…')
+  const [pending, setPending] = useState<{ ring: LatLng[]; estimatedHa: number } | null>(null)
+  const [saveName, setSaveName] = useState('')
+  const [saveArea, setSaveArea] = useState('')
+  const [saveColor, setSaveColor] = useState('#15803d')
+  const [saving, setSaving] = useState(false)
 
   selectRef.current = onToggleSelect
   selectedRef.current = selectedIds
@@ -291,25 +296,34 @@ export function FarmMap({
     }
   }, [fields, selectedIds, ready])
 
-  async function saveRing(name: string, ring: LatLng[], color: string) {
+  async function saveRing(name: string, ring: LatLng[], color: string, areaOverride?: number) {
     if (!farmId || ring.length < 3) return
     const geojson = ringToGeoJSON(ring)
-    const area = polygonAreaHa(ring)
+    const drawn = polygonAreaHa(ring)
+    const area = areaOverride != null && Number.isFinite(areaOverride) && areaOverride > 0 ? areaOverride : drawn
     const supabase = createClient()
-    const { error } = await supabase.from('farm_fields').insert({
+    const row: Record<string, unknown> = {
       farm_id: farmId,
       name,
       color,
       geojson,
       area_ha: area,
-    })
+      drawn_area_ha: drawn,
+    }
+    let { error } = await supabase.from('farm_fields').insert(row)
+    if (error && /drawn_area_ha/i.test(error.message)) {
+      delete row.drawn_area_ha
+      const retry = await supabase.from('farm_fields').insert(row)
+      error = retry.error
+    }
     if (error) setMsg(error.message)
     else {
-      setMsg('Saved ' + name)
+      setMsg('Saved ' + name + ' · ' + area.toFixed(2) + ' ha')
       draftRef.current = []
       setDraftCount(0)
       draftLayerRef.current?.clearLayers()
       setMode('view')
+      setPending(null)
       onSaved?.()
     }
   }
@@ -320,10 +334,23 @@ export function FarmMap({
       setMsg('Tap at least 3 corners on the map')
       return
     }
-    const name = window.prompt('Field name')
-    if (!name) return
-    const color = window.prompt('Colour hex (e.g. #15803d)', '#15803d') || '#15803d'
-    await saveRing(name.trim(), ring, color)
+    const estimatedHa = polygonAreaHa(ring)
+    setPending({ ring, estimatedHa })
+    setSaveName('')
+    setSaveArea(estimatedHa.toFixed(2))
+    setSaveColor('#15803d')
+    setMsg(null)
+  }
+
+  async function confirmPending() {
+    if (!pending) return
+    if (!saveName.trim()) {
+      setMsg('Enter a field name')
+      return
+    }
+    setSaving(true)
+    await saveRing(saveName.trim(), pending.ring, saveColor, Number(saveArea))
+    setSaving(false)
   }
 
   async function onImport(file: File) {
@@ -416,6 +443,55 @@ export function FarmMap({
             : 'Satellite map of your fields. Allow location if asked so it zooms to the farm. Draw a new field or import a KML / shapefile.'}
       </p>
       {msg && <p className="font-semibold text-brand-800">{msg}</p>}
+            {pending && (
+        <form
+          className="space-y-2 rounded-2xl border-4 border-brand-800 bg-white p-4"
+          onSubmit={(e) => {
+            e.preventDefault()
+            confirmPending()
+          }}
+        >
+          <h3 className="text-lg font-bold">Save field</h3>
+          <p className="text-sm font-semibold text-slate-700">
+            Map estimate: {pending.estimatedHa.toFixed(2)} ha
+          </p>
+          <label className="block">
+            <span className="text-sm font-bold">Name</span>
+            <input
+              className="mt-1 min-h-[48px] w-full rounded-xl border-2 border-slate-500 px-3 text-base font-semibold"
+              value={saveName}
+              onChange={(e) => setSaveName(e.target.value)}
+              required
+            />
+          </label>
+          <label className="block">
+            <span className="text-sm font-bold">Area used for spraying (ha)</span>
+            <input
+              className="mt-1 min-h-[48px] w-full rounded-xl border-2 border-slate-500 px-3 text-base font-semibold"
+              type="number"
+              step="0.01"
+              min="0.01"
+              value={saveArea}
+              onChange={(e) => setSaveArea(e.target.value)}
+            />
+          </label>
+          <p className="text-xs font-semibold text-slate-600">
+            Leave as the estimate, or type your official / LPIS area. The sprayer uses this figure.
+          </p>
+          <label className="flex items-center gap-2">
+            <span className="text-sm font-bold">Colour</span>
+            <input type="color" value={saveColor} onChange={(e) => setSaveColor(e.target.value)} className="h-10 w-14" />
+          </label>
+          <div className="flex gap-2">
+            <button type="submit" disabled={saving} className="min-h-[48px] flex-1 rounded-xl bg-brand-700 font-bold text-white">
+              {saving ? 'Saving…' : 'Save field'}
+            </button>
+            <button type="button" className="min-h-[48px] rounded-xl border-2 border-slate-600 px-4 font-bold" onClick={() => setPending(null)}>
+              Back
+            </button>
+          </div>
+        </form>
+      )}
       <div className="relative w-full" style={{ height: MAP_HEIGHT, minHeight: MAP_HEIGHT }}>
         {status && (
           <div className="pointer-events-none absolute inset-0 z-[5] flex items-center justify-center rounded-2xl bg-slate-600/80 text-lg font-bold text-white">
