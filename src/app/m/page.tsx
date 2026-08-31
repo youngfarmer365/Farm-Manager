@@ -66,6 +66,10 @@ export default function MobileHomePage() {
               <span className="text-2xl font-bold">Animals</span>
               <span className="mt-1 font-semibold text-slate-700">List, search, weights</span>
             </Link>
+            <Link href="/m/intake" className={tile + ' border-brand-900 bg-white'}>
+              <span className="text-2xl font-bold">EID intake</span>
+              <span className="mt-1 font-semibold text-slate-700">Scan tags into the farm</span>
+            </Link>
             <Link href="/m/feeding" className={tile + ' border-slate-600 bg-white'}>
               <span className="text-2xl font-bold">Feeding setup</span>
               <span className="mt-1 font-semibold text-slate-700">Diets, loads, team</span>
