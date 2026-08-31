@@ -124,16 +124,37 @@ export function FarmMap({
       draftLayerRef.current = draft
       Object.assign(map, { _osm: osm, _sat: imagery })
 
-      map.on('click', (e) => {
+        map.on('click', (e) => {
         if (modeRef.current !== 'draw') return
         draftRef.current = [...draftRef.current, { lat: e.latlng.lat, lng: e.latlng.lng }]
         setDraftCount(draftRef.current.length)
-        L.circleMarker(e.latlng, { radius: 6, color: '#facc15', fillOpacity: 1, weight: 2 }).addTo(draft)
-        if (draftRef.current.length > 1) {
-          const last = draftRef.current.slice(-2)
+        draft.clearLayers()
+        const pts = draftRef.current
+        pts.forEach((p) => {
+          L.circleMarker([p.lat, p.lng], {
+            radius: 7,
+            color: '#facc15',
+            fillColor: '#facc15',
+            fillOpacity: 1,
+            weight: 2,
+            interactive: false,
+          }).addTo(draft)
+        })
+        if (pts.length >= 3) {
+          L.polygon(
+            pts.map((p) => [p.lat, p.lng] as [number, number]),
+            {
+              color: '#facc15',
+              weight: 3,
+              fillColor: '#facc15',
+              fillOpacity: 0.35,
+              interactive: false,
+            }
+          ).addTo(draft)
+        } else if (pts.length === 2) {
           L.polyline(
-            last.map((p) => [p.lat, p.lng] as [number, number]),
-            { color: '#facc15', weight: 3 }
+            pts.map((p) => [p.lat, p.lng] as [number, number]),
+            { color: '#facc15', weight: 3, interactive: false }
           ).addTo(draft)
         }
       })
@@ -361,13 +382,14 @@ export function FarmMap({
             {mode === 'draw' ? 'Cancel draw' : 'Draw field'}
           </button>
         )}
-        {mode === 'draw' && (
+          {mode === 'draw' && (
           <button
             type="button"
+            disabled={draftCount < 3}
             onClick={closeDraw}
-            className="min-h-[44px] rounded-xl bg-brand-700 px-3 text-sm font-bold text-white"
+            className="min-h-[44px] rounded-xl bg-brand-700 px-3 text-sm font-bold text-white disabled:opacity-40"
           >
-            Close shape ({draftCount} pts)
+            Save field ({draftCount} pts)
           </button>
         )}
         {!selectable && (
@@ -390,7 +412,7 @@ export function FarmMap({
         {selectable
           ? 'Tap a field on the map to add or remove it from the job.'
           : mode === 'draw'
-            ? 'Tap the corners of the field on the satellite image, then Close shape.'
+            ? 'Tap corners. After 3 points the field fills in — keep tapping to add corners, then Save field (it closes the shape).'
             : 'Satellite map of your fields. Allow location if asked so it zooms to the farm. Draw a new field or import a KML / shapefile.'}
       </p>
       {msg && <p className="font-semibold text-brand-800">{msg}</p>}
