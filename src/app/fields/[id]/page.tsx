@@ -52,6 +52,7 @@ export default function FieldDetailPage() {
   const [year, setYear] = useState(Number(search.get('year')) || currentYear())
   const [name, setName] = useState('')
   const [color, setColor] = useState('#15803d')
+  const [areaHa, setAreaHa] = useState('')
   const [crop, setCrop] = useState('Grass')
   const [variety, setVariety] = useState('')
   const [status, setStatus] = useState('current')
@@ -84,6 +85,7 @@ export default function FieldDetailPage() {
     if (f) {
       setName(f.name)
       setColor(f.color || '#15803d')
+      setAreaHa(f.area_ha != null ? String(f.area_ha) : '')
     }
     const cropRows = (c as CropRow[]) || []
     setCrops(cropRows)
@@ -127,7 +129,12 @@ export default function FieldDetailPage() {
     const supabase = createClient()
     const { error } = await supabase
       .from('farm_fields')
-      .update({ name: name.trim(), color, current_crop: crop })
+      .update({         
+        name: name.trim(),         
+        color,         
+        current_crop: crop,         
+        area_ha: areaHa === '' ? null : Number(areaHa),       
+      })
       .eq('id', field.id)
     if (error) setError(error.message)
   }
@@ -170,6 +177,17 @@ export default function FieldDetailPage() {
         <form onSubmit={saveCrop} className="space-y-3 rounded-2xl border-4 border-slate-600 bg-white p-4">
           <label className="block">
             <span className="text-sm font-bold">Field name</span>
+                      <label className="block">
+            <span className="text-sm font-bold">Area used for spraying (ha)</span>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={areaHa}
+              onChange={(e) => setAreaHa(e.target.value)}
+              className="mt-1 w-full rounded-xl border-2 border-slate-400 px-3 py-2"
+            />
+          </label>
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
