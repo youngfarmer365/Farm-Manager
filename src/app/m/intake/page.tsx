@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { Group } from '@/types/database'
+import { ScreenKeys } from '@/components/intake/ScreenKeys'
 
 interface Herd {
   id: string
@@ -93,6 +94,7 @@ export default function MobileIntakePage() {
   const manualRef = useRef<HTMLInputElement>(null)
   const supabase = createClient()
   const [appliedKeys, setAppliedKeys] = useState<Record<string, string[]>>({})
+  const [pad, setPad] = useState<null | 'tag' | 'ml' | 'wd' | 'cost' | 'batch'>(null)
 
   useEffect(() => {
     async function load() {
@@ -142,7 +144,7 @@ export default function MobileIntakePage() {
   }, [])
 
   useEffect(() => {
-    if (!sessionOn) return
+    if (!sessionOn || pad) return
     const id = window.setInterval(() => {
       const active = document.activeElement
       if (active === manualRef.current) return
@@ -158,7 +160,7 @@ export default function MobileIntakePage() {
       scanRef.current?.focus()
     }, 1000)
     return () => window.clearInterval(id)
-  }, [sessionOn])
+  }, [sessionOn, pad])
 
   function onMedicinePick(id: string) {
     setMedId(id)
@@ -465,39 +467,25 @@ export default function MobileIntakePage() {
                 onChange={(e) => setTreatedAt(e.target.value)}
                 className={field}
               />
-              <input
-                type="number"
-                min="0"
-                value={withdrawal}
-                onChange={(e) => setWithdrawal(e.target.value)}
-                placeholder="W/d days"
-                className={field}
-              />
-              <input
-                type="number"
-                step="0.0001"
-                value={costPerMl}
-                onChange={(e) => setCostPerMl(e.target.value)}
-                placeholder="€/ml"
-                className={field}
-              />
-              <input
-                type="number"
-                step="0.1"
-                required
-                value={mlUsed}
-                onChange={(e) => setMlUsed(e.target.value)}
-                placeholder="Ml each *"
-                className={field}
-              />
+              <button type="button" className={field + ' text-left'} onClick={() => { scanRef.current?.blur(); setPad('ml') }}>
+                {mlUsed || 'Ml each *'}
+              </button>
+              <button type="button" className={field + ' text-left'} onClick={() => { scanRef.current?.blur(); setPad('wd') }}>
+                {withdrawal ? withdrawal + ' d w/d' : 'W/d days'}
+              </button>
+              <button type="button" className={field + ' text-left'} onClick={() => { scanRef.current?.blur(); setPad('batch') }}>
+                {batchRef || 'Batch ref'}
+              </button>
             </div>
-            <input
-              type="text"
-              value={batchRef}
-              onChange={(e) => setBatchRef(e.target.value)}
-              placeholder="Batch / bottle ref"
-              className={field}
-            />
+            {pad === 'ml' && (
+              <ScreenKeys value={mlUsed} onChange={setMlUsed} decimal onSubmit={() => setPad(null)} submitLabel="Done" />
+            )}
+            {pad === 'wd' && (
+              <ScreenKeys value={withdrawal} onChange={setWithdrawal} onSubmit={() => setPad(null)} submitLabel="Done" />
+            )}
+            {pad === 'batch' && (
+              <ScreenKeys value={batchRef} onChange={setBatchRef} onSubmit={() => setPad(null)} submitLabel="Done" />
+            )}
             <button type="submit" className={btnSecondary}>
               Add treatment to queue
             </button>
@@ -546,28 +534,37 @@ export default function MobileIntakePage() {
               autoCorrect="off"
               disabled={saving}
             />
-            <p className="text-sm font-semibold text-slate-800">
-              Keep this box selected. Reader must be in keyboard / HID mode.
+             <p className="text-sm font-semibold text-slate-800">
+              Scan into the box above. If a tag misses, use Type tag on screen — the iPhone keyboard will not open while the reader is connected.
             </p>
-            <form onSubmit={handleManual} className="space-y-2">
-              <label className={label}>Manual tag</label>
-              <input
-                ref={manualRef}
-                type="text"
-                inputMode="numeric"
-                value={manualTag}
-                onChange={(e) => setManualTag(e.target.value)}
-                className={field + ' font-mono'}
-                placeholder="Type tag if EID fails"
-              />
-              <button
-                type="submit"
-                disabled={saving || !manualTag.trim()}
-                className={btnDark}
-              >
-                Add manual tag
-              </button>
-            </form>
+            <button
+              type="button"
+              className={btnDark}
+              onClick={() => {
+                scanRef.current?.blur()
+                setPad(pad === 'tag' ? null : 'tag')
+              }}
+            >
+              {pad === 'tag' ? 'Hide tag keys' : 'Type tag on screen'}
+            </button>
+            {pad === 'tag' && (
+              <div className="space-y-2">
+                <div className="rounded-xl border-2 border-slate-700 bg-white px-3 py-3 font-mono text-xl font-bold">
+                  {manualTag || '—'}
+                </div>
+                <ScreenKeys
+                  value={manualTag}
+                  onChange={setManualTag}
+                  show372
+                  onSubmit={async () => {
+                    await addTag(manualTag)
+                    setManualTag('')
+                    setPad(null)
+                  }}
+                  submitLabel="Add tag"
+                />
+              </div>
+            )}
             {feedback && (
               <p
                 className={
