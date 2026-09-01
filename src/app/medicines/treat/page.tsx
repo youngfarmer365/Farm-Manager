@@ -109,6 +109,18 @@ export default function TreatPage() {
     )
   })
 
+  function selectFiltered() {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      for (const a of filtered) next.add(a.id)
+      return next
+    })
+  }
+
+  function clearSelection() {
+    setSelected(new Set())
+  }
+
   async function save(e: React.FormEvent) {
     e.preventDefault()
     if (!farmId || !medicineId || selected.size === 0) {
@@ -295,6 +307,22 @@ export default function TreatPage() {
               placeholder="Search tag, group, pen…"
               className="flex-1 min-w-[12rem] rounded-md border border-slate-300 px-3 py-1.5 text-sm"
             />
+                        <button
+              type="button"
+              onClick={selectFiltered}
+              disabled={filtered.length === 0}
+              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50 disabled:opacity-50"
+            >
+              Select all {filtered.length}
+            </button>
+            <button
+              type="button"
+              onClick={clearSelection}
+              disabled={selected.size === 0}
+              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50 disabled:opacity-50"
+            >
+              Clear
+            </button>
             <span className="text-xs text-slate-500">{selected.size} selected</span>
           </div>
           <div className="max-h-96 overflow-y-auto">
