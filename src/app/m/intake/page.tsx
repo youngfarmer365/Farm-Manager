@@ -92,6 +92,7 @@ export default function MobileIntakePage() {
   const scanRef = useRef<HTMLInputElement>(null)
   const manualRef = useRef<HTMLInputElement>(null)
   const supabase = createClient()
+  const [appliedKeys, setAppliedKeys] = useState<Record<string, string[]>>({})
 
   useEffect(() => {
     async function load() {
@@ -200,12 +201,15 @@ export default function MobileIntakePage() {
     setFeedbackOk(true)
   }
 
-  async function writeTreatmentsForAnimal(animalId: string) {
-    if (!farmId || sessionTreatments.length === 0) return
+  async function writeMissingTreatments(animalId: string, already: string[]) {
+    if (!farmId || sessionTreatments.length === 0) return already
+    const have = new Set(already)
+    const todo = sessionTreatments.filter((t) => !have.has(t.key))
+    if (!todo.length) return already
     const {
       data: { user },
     } = await supabase.auth.getUser()
-    const rows = sessionTreatments.map((t) => ({
+    const rows = todo.map((t) => ({
       farm_id: farmId,
       animal_id: animalId,
       medicine_id: t.medicineId,
@@ -219,17 +223,29 @@ export default function MobileIntakePage() {
       notes: t.notes || null,
       created_by: user?.id || null,
     }))
-    await supabase.from('treatments').insert(rows)
+    const { error } = await supabase.from('treatments').insert(rows)
+    if (error) throw error
+    return already.concat(todo.map((t) => t.key))
   }
 
   async function applyTreatmentsToSession() {
     if (!sessionTreatments.length || !sessionAnimals.length) return
     setApplyingTx(true)
     try {
+      const next = { ...appliedKeys }
+      let n = 0
       for (const a of sessionAnimals) {
-        await writeTreatmentsForAnimal(a.id)
+        const before = next[a.id] || []
+        const after = await writeMissingTreatments(a.id, before)
+        if (after.length > before.length) n += 1
+        next[a.id] = after
       }
-      setFeedback('Applied treatments to ' + sessionAnimals.length + ' animals')
+      setAppliedKeys(next)
+      setFeedback(
+        n
+          ? 'Treatments added to ' + n + ' animal(s) that did not already have them'
+          : 'Already on every animal in this session — nothing extra written'
+      )
       setFeedbackOk(true)
     } catch (err: any) {
       setFeedback(err.message || 'Failed')
@@ -296,7 +312,8 @@ export default function MobileIntakePage() {
       return
     }
     if (sessionTreatments.length) {
-      await writeTreatmentsForAnimal(inserted.id)
+      const keys = await writeMissingTreatments(inserted.id, [])
+      setAppliedKeys((prev) => ({ ...prev, [inserted.id]: keys }))
     }
     setSessionAnimals((prev) => [
       { id: inserted.id, tag: inserted.tag, created_at: inserted.created_at },
@@ -506,17 +523,10 @@ export default function MobileIntakePage() {
             </div>
           ))}
 
-          {sessionTreatments.length > 0 && sessionAnimals.length > 0 && (
-            <button
-              type="button"
-              onClick={applyTreatmentsToSession}
-              disabled={applyingTx}
-              className="min-h-[52px] w-full rounded-xl border-2 border-amber-900 bg-amber-600 text-base font-bold text-white disabled:opacity-50"
-            >
-              {applyingTx
-                ? 'Applying…'
-                : 'Apply to all ' + sessionAnimals.length + ' in session'}
-            </button>
+      {sessionTreatments.length > 0 && (
+            <p className="text-sm font-semibold text-slate-700">
+              Goes on each animal as you scan. Only use Apply for animals scanned before you queued the medicine.
+            </p>
           )}
         </section>
 
