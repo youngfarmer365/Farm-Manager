@@ -403,8 +403,25 @@ export default function IntakePage() {
                 ))}
               </select>
             </div>
+                        <div>
+              <label className="block text-sm font-medium mb-1">Shed</label>
+              <select
+                value={shedId}
+                onChange={(e) => {
+                  setShedId(e.target.value)
+                  setPenId('')
+                }}
+                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                disabled={sessionOn}
+              >
+                <option value="">All sheds / no shed</option>
+                {pens.filter(isShed).map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            </div>
             <div>
-              <label className="block text-sm font-medium mb-1">Pen / Field</label>
+              <label className="block text-sm font-medium mb-1">Pen</label>
               <select
                 value={penId}
                 onChange={(e) => setPenId(e.target.value)}
@@ -412,10 +429,10 @@ export default function IntakePage() {
                 disabled={sessionOn}
               >
                 <option value="">— None —</option>
-                {pens.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
+                {housingPens(pens)
+                  .filter((p) => (shedId ? p.parent_id === shedId : true))
+                  .map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
                 ))}
               </select>
             </div>
