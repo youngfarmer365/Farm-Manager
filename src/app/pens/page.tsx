@@ -147,6 +147,9 @@ export default function PensPage() {
   async function openAssign(pen: Pen) {
     if (!farmId) return
     setAssignPen(pen)
+    setTimeout(() => {
+      document.getElementById('assign-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 50)
     setAssignMessage(null)
     setSearch('')
     setScanMode(false)
@@ -406,7 +409,7 @@ export default function PensPage() {
         </div>
 
         {assignPen && (
-          <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
+          <div id="assign-panel" className="bg-white rounded-xl border shadow-sm overflow-hidden">
             <div className="px-4 py-3 border-b flex items-center justify-between gap-3 flex-wrap">
               <div>
                 <h2 className="font-semibold">Assign animals to: {assignPen.name}</h2>
