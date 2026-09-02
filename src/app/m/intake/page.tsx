@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { Group } from '@/types/database'
 import { ScreenKeys } from '@/components/intake/ScreenKeys'
+import { housingPens, isShed } from '@/lib/pens'
 
 interface Herd {
   id: string
@@ -14,6 +15,8 @@ interface Herd {
 interface Pen {
   id: string
   name: string
+  type?: string | null
+  parent_id?: string | null
 }
 
 interface Medicine {
@@ -72,6 +75,7 @@ export default function MobileIntakePage() {
   const [farmId, setFarmId] = useState<string | null>(null)
   const [groupId, setGroupId] = useState('')
   const [penId, setPenId] = useState('')
+  const [shedId, setShedId] = useState('') 
   const [herdId, setHerdId] = useState('')
   const [sessionOn, setSessionOn] = useState(false)
   const [scanBuffer, setScanBuffer] = useState('')
@@ -119,7 +123,7 @@ export default function MobileIntakePage() {
           .order('name'),
         supabase
           .from('pens')
-          .select('id, name')
+          .select('id, name, type, parent_id')
           .eq('farm_id', membership.farm_id)
           .eq('is_active', true)
           .order('name'),
@@ -395,8 +399,26 @@ export default function MobileIntakePage() {
             </select>
           </div>
 
+             <div>
+            <label className={label}>Shed</label>
+            <select
+              value={shedId}
+              onChange={(e) => {
+                setShedId(e.target.value)
+                setPenId('')
+              }}
+              className={field}
+              disabled={sessionOn}
+            >
+              <option value="">All sheds / no shed</option>
+              {pens.filter(isShed).map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+          </div>
+         
           <div>
-            <label className={label}>Pen / field</label>
+            <label className={label}>Pen</label>
             <select
               value={penId}
               onChange={(e) => setPenId(e.target.value)}
@@ -404,14 +426,13 @@ export default function MobileIntakePage() {
               disabled={sessionOn}
             >
               <option value="">None</option>
-              {pens.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
+              {housingPens(pens)
+                .filter((p) => (shedId ? p.parent_id === shedId : true))
+                .map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
               ))}
             </select>
           </div>
-
           <div>
             <label className={label}>Herd</label>
             <select
