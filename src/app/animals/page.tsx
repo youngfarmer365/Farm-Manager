@@ -13,6 +13,7 @@ import type {
 } from '@/types/database'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
+import { groupPensByShed, housingPens, penLabel } from '@/lib/pens'
 
 interface Herd {
   id: string
@@ -32,6 +33,7 @@ export default function AnimalsPage() {
   const [farmId, setFarmId] = useState<string | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [busy, setBusy] = useState(false)
+  const [movePenId, setMovePenId] = useState('')
   const [withdrawalByAnimal, setWithdrawalByAnimal] = useState<Record<string, number>>({})
 
   useEffect(() => {
@@ -208,6 +210,33 @@ export default function AnimalsPage() {
     await loadAnimals()
   }
 
+  async function bulkMoveToPen() {
+    if (selected.size === 0 || !movePenId) return
+    const dest = pens.find((p) => p.id === movePenId)
+    const label = movePenId === '__none__' ? 'no pen' : dest ? penLabel(dest, pens) : 'pen'
+    if (
+      !confirm(
+        'Move ' + selected.size + ' animal(s) to ' + label + '? Tags and doses stay the same.'
+      )
+    ) {
+      return
+    }
+    setBusy(true)
+    const supabase = createClient()
+    const { error } = await supabase
+      .from('animals')
+      .update({ pen_id: movePenId === '__none__' ? null : movePenId })
+      .in('id', Array.from(selected))
+    setBusy(false)
+    if (error) {
+      alert(error.message)
+      return
+    }
+    setSelected(new Set())
+    setMovePenId('')
+    await loadAnimals()
+  }
+
   async function bulkSetFlag(flagged: boolean) {
     if (selected.size === 0) return
     setBusy(true)
@@ -307,6 +336,16 @@ export default function AnimalsPage() {
                 )}
               </span>
               <button
+                  type="button"
+                  onClick={toggleSelectAll}
+                  disabled={loading || displayAnimals.length === 0}
+                  className="rounded-lg border-2 border-slate-700 bg-white px-3 py-1.5 text-sm font-bold text-slate-900 disabled:opacity-50"
+                >
+                  {selected.size === displayAnimals.length && displayAnimals.length > 0
+                    ? 'Clear selection'
+                    : 'Select all ' + displayAnimals.length}
+                </button>
+              <button
                 type="button"
                 onClick={() => window.print()}
                 className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-medium text-sky-800 hover:border-sky-300 hover:bg-sky-100 print:hidden"
@@ -326,6 +365,38 @@ export default function AnimalsPage() {
                 >
                   Flag
                 </button>
+
+                <select
+                  value={movePenId}
+                  onChange={(e) => setMovePenId(e.target.value)}
+                  className="min-h-[36px] rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs"
+                >
+                  <option value="">Move to pen…</option>
+                  <option value="__none__">No pen</option>
+                  {groupPensByShed(housingPens(pens)).grouped.map(({ shed, pens: inShed }) => (
+                    <optgroup key={shed.id} label={shed.name}>
+                      {inShed.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                  {groupPensByShed(housingPens(pens)).ungrouped.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  disabled={busy || !movePenId}
+                  onClick={bulkMoveToPen}
+                  className="rounded-lg border-2 border-brand-800 bg-brand-700 px-2.5 py-1 text-xs font-bold text-white disabled:opacity-50"
+                >
+                  Move
+                </button>
+                
                 <button
                   type="button"
                   disabled={busy}
