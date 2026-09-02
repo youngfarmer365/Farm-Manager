@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import type { AnimalFilters, Group, Pen } from '@/types/database'
+import { groupPensByShed, housingPens } from '@/lib/pens'
 
 interface Herd {
   id: string
@@ -187,22 +188,64 @@ export function AnimalFiltersPanel({
       )}
 
       {/* Pens */}
-      {pens.length > 0 && (
+      {housingPens(pens).length > 0 && (
         <div className={section}>
-          <p className={sectionTitle}>Pens / fields</p>
-          <div className="flex flex-col gap-2">
-            {pens.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => toggleArray('pen_ids', p.id)}
-                className={filters.pen_ids?.includes(p.id) ? chipOn : chipOff}
-              >
-                {filters.pen_ids?.includes(p.id) ? '✓ ' : ''}
-                {p.name}
-              </button>
-            ))}
-          </div>
+          <p className={sectionTitle}>Pens</p>
+          <p className="text-xs font-semibold text-slate-600">Tap a shed to select every pen in it.</p>
+          {groupPensByShed(pens).grouped.map(({ shed, pens: inShed }) => {
+            if (inShed.length === 0) return null
+            const ids = inShed.map((p) => p.id)
+            const allOn = ids.every((id) => filters.pen_ids?.includes(id))
+            return (
+              <div key={shed.id} className="space-y-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFilters((prev) => {
+                      const cur = new Set(prev.pen_ids || [])
+                      if (allOn) ids.forEach((id) => cur.delete(id))
+                      else ids.forEach((id) => cur.add(id))
+                      const next = Array.from(cur)
+                      return { ...prev, pen_ids: next.length ? next : undefined }
+                    })
+                  }}
+                  className={allOn ? chipOn + ' w-full text-left' : chipOff + ' w-full text-left'}
+                >
+                  {allOn ? '✓ ' : ''}
+                  {shed.name}
+                </button>
+                <div className="pl-3 flex flex-col gap-1">
+                  {inShed.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => toggleArray('pen_ids', p.id)}
+                      className={filters.pen_ids?.includes(p.id) ? chipOn : chipOff}
+                    >
+                      {filters.pen_ids?.includes(p.id) ? '✓ ' : ''}
+                      {p.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )
+          })}
+          {groupPensByShed(pens).ungrouped.length > 0 && (
+            <div className="space-y-1">
+              <p className="text-xs font-bold text-slate-600">No shed</p>
+              {groupPensByShed(pens).ungrouped.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => toggleArray('pen_ids', p.id)}
+                  className={filters.pen_ids?.includes(p.id) ? chipOn : chipOff}
+                >
+                  {filters.pen_ids?.includes(p.id) ? '✓ ' : ''}
+                  {p.name}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
