@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 import type { Group } from '@/types/database'
+import { housingPens, isShed } from '@/lib/pens'
 
 interface Herd {
   id: string
@@ -14,6 +15,8 @@ interface Herd {
 interface Pen {
   id: string
   name: string
+  type?: string | null
+  parent_id?: string | null
 }
 
 interface Medicine {
@@ -60,6 +63,7 @@ export default function IntakePage() {
 
   const [groupId, setGroupId] = useState('')
   const [penId, setPenId] = useState('')
+  const [shedId, setShedId] = useState('')
   const [herdId, setHerdId] = useState('')
 
   const [sessionOn, setSessionOn] = useState(false)
@@ -112,7 +116,7 @@ export default function IntakePage() {
           .order('name'),
         supabase
           .from('pens')
-          .select('id, name')
+          .select('id, name, type, parent_id')
           .eq('farm_id', membership.farm_id)
           .eq('is_active', true)
           .order('name'),
