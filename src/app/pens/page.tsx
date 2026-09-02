@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
+import { groupPensByShed, isShed } from '@/lib/pens'
 
 interface Pen {
   id: string
@@ -11,6 +12,7 @@ interface Pen {
   capacity: number | null
   area_ha: number | null
   is_active: boolean
+  parent_id: string | null
 }
 
 interface AnimalRow {
@@ -27,9 +29,9 @@ export default function PensPage() {
   const [pens, setPens] = useState<Pen[]>([])
   const [farmId, setFarmId] = useState<string | null>(null)
   const [name, setName] = useState('')
-  const [type, setType] = useState('pen')
+  const [shedName, setShedName] = useState('')
+  const [parentId, setParentId] = useState('')
   const [capacity, setCapacity] = useState('')
-  const [areaHa, setAreaHa] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -85,35 +87,61 @@ export default function PensPage() {
     return () => window.clearInterval(id)
   }, [scanMode, assignPen])
 
-  async function addPen(e: React.FormEvent) {
+  async function addShed(e: React.FormEvent) {
     e.preventDefault()
-    if (!farmId || !name.trim()) return
+    if (!farmId || !shedName.trim()) return
     setLoading(true)
     setError(null)
-
     const { error } = await supabase.from('pens').insert({
       farm_id: farmId,
-      name: name.trim(),
-      type: type || 'pen',
-      capacity: capacity ? Number(capacity) : null,
-      area_ha: areaHa ? Number(areaHa) : null,
+      name: shedName.trim(),
+      type: 'shed',
       is_active: true,
     })
-
     if (error) setError(error.message)
     else {
-      setName('')
-      setCapacity('')
-      setAreaHa('')
+      setShedName('')
       await loadPens()
     }
     setLoading(false)
   }
 
-  async function removePen(id: string) {
-    if (!confirm('Remove this pen/field? Animals in it will be unassigned.')) return
-    await supabase.from('pens').delete().eq('id', id)
+  async function addPen(e: React.FormEvent) {
+    e.preventDefault()
+    if (!farmId || !name.trim()) return
+    setLoading(true)
+    setError(null)
+    const row: Record<string, unknown> = {
+      farm_id: farmId,
+      name: name.trim(),
+      type: 'pen',
+      parent_id: parentId || null,
+      capacity: capacity ? Number(capacity) : null,
+      is_active: true,
+    }
+    const { error } = await supabase.from('pens').insert(row)
+    if (error) setError(error.message)
+    else {
+      setName('')
+      setCapacity('')
+      await loadPens()
+    }
+    setLoading(false)
+  }
+
+  async function removePen(p: Pen) {
+    const msg = isShed(p)
+      ? 'Remove this shed? Pens inside stay, ungrouped.'
+      : 'Remove this pen? Animals keep their tags — they are only taken out of the pen.'
+    if (!confirm(msg)) return
+    await supabase.from('pens').delete().eq('id', p.id)
     await loadPens()
+  }
+
+  async function moveToShed(penId: string, shedId: string) {
+    const { error } = await supabase.from('pens').update({ parent_id: shedId || null }).eq('id', penId)
+    if (error) setError(error.message)
+    else await loadPens()
   }
 
   async function openAssign(pen: Pen) {
@@ -273,7 +301,7 @@ export default function PensPage() {
     <div className="min-h-screen bg-slate-50">
       <header className="bg-white border-b px-4 py-3">
         <div className="max-w-3xl mx-auto flex items-center justify-between">
-          <h1 className="text-xl font-bold">Pens / Fields</h1>
+          <h1 className="text-xl font-bold">Sheds & Pens</h1>
           <Link href="/animals" className="text-sm text-slate-600 hover:underline">
             Back to animals
           </Link>
@@ -281,98 +309,99 @@ export default function PensPage() {
       </header>
 
       <main className="max-w-3xl mx-auto px-4 py-8 space-y-6">
+                <form onSubmit={addShed} className="bg-white rounded-xl border p-6 space-y-3 shadow-sm">
+          <h2 className="font-semibold">1. Add a shed</h2>
+          <p className="text-sm text-slate-600">Animals live in pens inside the shed, not in the shed itself.</p>
+          <input
+            type="text"
+            required
+            value={shedName}
+            onChange={(e) => setShedName(e.target.value)}
+            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+            placeholder="e.g. Finishing shed"
+          />
+          <button type="submit" disabled={loading} className="rounded-lg bg-slate-800 text-white px-4 py-2 text-sm font-medium disabled:opacity-50">
+            {loading ? 'Adding…' : 'Add shed'}
+          </button>
+        </form>
+
         <form onSubmit={addPen} className="bg-white rounded-xl border p-6 space-y-4 shadow-sm">
-          <h2 className="font-semibold">Add pen / field</h2>
+          <h2 className="font-semibold">2. Add a pen in a shed</h2>
           <div>
-            <label className="block text-sm font-medium mb-1">Name *</label>
-            <input
-              type="text"
-              required
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-              placeholder="e.g. Shed 1, Field 4"
-            />
+            <label className="block text-sm font-medium mb-1">Shed</label>
+            <select value={parentId} onChange={(e) => setParentId(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm">
+              <option value="">— No shed yet —</option>
+              {pens.filter(isShed).map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
           </div>
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <label className="block text-sm font-medium mb-1">Type</label>
-              <select
-                value={type}
-                onChange={(e) => setType(e.target.value)}
-                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-              >
-                <option value="pen">Pen</option>
-                <option value="field">Field</option>
-                <option value="shed">Shed</option>
-                <option value="other">Other</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Capacity</label>
-              <input
-                type="number"
-                min="0"
-                value={capacity}
-                onChange={(e) => setCapacity(e.target.value)}
-                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Area (ha)</label>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                value={areaHa}
-                onChange={(e) => setAreaHa(e.target.value)}
-                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-              />
-            </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Pen name *</label>
+            <input type="text" required value={name} onChange={(e) => setName(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="e.g. Pen 1" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Capacity (optional)</label>
+            <input type="number" min="0" value={capacity} onChange={(e) => setCapacity(e.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
           </div>
           {error && <p className="text-sm text-red-600">{error}</p>}
-          <button
-            type="submit"
-            disabled={loading}
-            className="rounded-lg bg-brand-600 text-white px-4 py-2 text-sm font-medium hover:bg-brand-700 disabled:opacity-50"
-          >
-            {loading ? 'Adding…' : 'Add'}
+          <button type="submit" disabled={loading} className="rounded-lg bg-brand-600 text-white px-4 py-2 text-sm font-medium disabled:opacity-50">
+            {loading ? 'Adding…' : 'Add pen'}
           </button>
         </form>
 
         <div className="bg-white rounded-xl border shadow-sm">
-          <div className="px-4 py-3 border-b font-medium">Your pens / fields</div>
+          <div className="px-4 py-3 border-b font-medium">Your sheds</div>
           {pens.length === 0 ? (
-            <p className="p-4 text-sm text-slate-500">None yet.</p>
+            <p className="p-4 text-sm text-slate-500">None yet. Add a shed, then pens inside it.</p>
           ) : (
-            <ul className="divide-y">
-              {pens.map((p) => (
-                <li key={p.id} className="px-4 py-3 flex items-center justify-between gap-3 text-sm">
-                  <div>
-                    <span className="font-medium">{p.name}</span>
-                    {p.type && (
-                      <span className="text-slate-500 ml-2 text-xs capitalize">{p.type}</span>
-                    )}
+            <div className="divide-y">
+              {groupPensByShed(pens).grouped.map(({ shed, pens: inShed }) => (
+                <div key={shed.id} className="px-4 py-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-bold">{shed.name}</span>
+                    <button type="button" onClick={() => removePen(shed)} className="text-red-600 hover:underline text-xs">Remove shed</button>
                   </div>
-                  <div className="flex gap-2 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => openAssign(p)}
-                      className="text-brand-700 hover:underline text-xs font-medium"
-                    >
-                      Assign animals
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => removePen(p.id)}
-                      className="text-red-600 hover:underline text-xs"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                </li>
+                  {inShed.length === 0 ? (
+                    <p className="text-sm text-slate-500 mt-1">No pens in this shed yet.</p>
+                  ) : (
+                    <ul className="mt-2 space-y-1">
+                      {inShed.map((p) => (
+                        <li key={p.id} className="flex items-center justify-between gap-2 text-sm pl-3">
+                          <span>{p.name}{p.capacity ? ` · ${p.capacity} hd` : ''}</span>
+                          <span className="flex gap-2 shrink-0">
+                            <button type="button" onClick={() => openAssign(p)} className="text-brand-700 hover:underline text-xs font-medium">Assign animals</button>
+                            <button type="button" onClick={() => removePen(p)} className="text-red-600 hover:underline text-xs">Remove</button>
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
               ))}
-            </ul>
+              {groupPensByShed(pens).ungrouped.length > 0 && (
+                <div className="px-4 py-3">
+                  <p className="font-bold">Pens with no shed</p>
+                  <ul className="mt-2 space-y-1">
+                    {groupPensByShed(pens).ungrouped.map((p) => (
+                      <li key={p.id} className="flex items-center justify-between gap-2 text-sm">
+                        <span>{p.name}</span>
+                        <span className="flex gap-2 shrink-0 items-center">
+                          <select className="rounded border px-1 py-0.5 text-xs" defaultValue="" onChange={(e) => { if (e.target.value) moveToShed(p.id, e.target.value) }}>
+                            <option value="">Move to shed…</option>
+                            {pens.filter(isShed).map((s) => (
+                              <option key={s.id} value={s.id}>{s.name}</option>
+                            ))}
+                          </select>
+                          <button type="button" onClick={() => openAssign(p)} className="text-brand-700 hover:underline text-xs font-medium">Assign animals</button>
+                          <button type="button" onClick={() => removePen(p)} className="text-red-600 hover:underline text-xs">Remove</button>
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
           )}
         </div>
 
