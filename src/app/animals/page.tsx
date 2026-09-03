@@ -128,7 +128,11 @@ export default function AnimalsPage() {
     const { data, count: c, error } = await query
     if (error) console.error(error)
 
-    const list = (data as AnimalEnriched[]) || []
+      const list = ((data as AnimalEnriched[]) || []).map((a) => {
+      const pen = pens.find((p) => p.id === a.pen_id)
+      const shed = pen?.parent_id ? pens.find((p) => p.id === pen.parent_id) : undefined
+      return { ...a, shed_name: shed?.name || null }
+    })
     setAnimals(list)
     setCount(c || 0)
     setSelected(new Set())
@@ -161,7 +165,7 @@ export default function AnimalsPage() {
     }
 
     setLoading(false)
-  }, [farmId, filters, sort])
+  }, [farmId, filters, sort, pens])
 
   useEffect(() => {
     loadAnimals()
