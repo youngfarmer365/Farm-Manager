@@ -194,9 +194,21 @@ export default function LoadsPage() {
     await openLoad(activeLoad)
   }
 
-  const availablePens = housingPens(pens as PenRow[]).filter((p) => !loadPens.some((lp) => lp.pen_id === p.id))
-  const shedGroups = groupPensByShed(availablePens)
-
+  const used = new Set(loadPens.map((lp) => lp.pen_id))
+  const allGroups = groupPensByShed(pens as PenRow[])
+  const shedGroups = {
+    grouped: allGroups.grouped
+      .map(({ shed, pens: inShed }) => ({
+        shed,
+        pens: inShed.filter((p) => !used.has(p.id)),
+      }))
+      .filter((g) => g.pens.length > 0),
+    ungrouped: allGroups.ungrouped.filter((p) => !used.has(p.id)),
+  }
+  const availablePens = [
+    ...shedGroups.grouped.flatMap((g) => g.pens),
+    ...shedGroups.ungrouped,
+  ]
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="bg-white border-b px-4 py-3">
