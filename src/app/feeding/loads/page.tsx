@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
+import { groupPensByShed, housingPens, type PenRow } from '@/lib/pens'
 
 interface Program {
   id: string
@@ -12,6 +13,8 @@ interface Program {
 interface Pen {
   id: string
   name: string
+  type?: string | null
+  parent_id?: string | null
 }
 
 interface Load {
@@ -67,7 +70,7 @@ export default function LoadsPage() {
         .order('created_at', { ascending: false }),
       supabase
         .from('pens')
-        .select('id, name')
+        .select('id, name, type, parent_id')
         .eq('farm_id', membership.farm_id)
         .eq('is_active', true)
         .order('name'),
@@ -191,7 +194,8 @@ export default function LoadsPage() {
     await openLoad(activeLoad)
   }
 
-  const availablePens = pens.filter((p) => !loadPens.some((lp) => lp.pen_id === p.id))
+  const availablePens = housingPens(pens as PenRow[]).filter((p) => !loadPens.some((lp) => lp.pen_id === p.id))
+  const shedGroups = groupPensByShed(availablePens)
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -258,7 +262,7 @@ export default function LoadsPage() {
             <h2 className="font-semibold">{activeLoad.name}</h2>
 
             <div>
-              <p className="text-sm font-medium mb-2">Add pens (from Pens / fields)</p>
+              <p className="text-sm font-medium mb-2">Add pens (from sheds)</p>
               <div className="flex items-center gap-2 mb-2">
                 <label className="text-xs text-slate-500">Default kg each</label>
                 <input
@@ -276,8 +280,49 @@ export default function LoadsPage() {
                   </Link>
                 </p>
               ) : (
-                <ul className="border rounded-lg divide-y max-h-48 overflow-y-auto">
-                  {availablePens.map((p) => (
+                                <ul className="border rounded-lg divide-y max-h-64 overflow-y-auto">
+                  {shedGroups.grouped.map(({ shed, pens: inShed }) => (
+                    <li key={shed.id}>
+                      <button
+                        type="button"
+                        className="w-full px-3 py-1.5 text-xs font-bold bg-slate-100 text-left"
+                        onClick={() => {
+                          setSelectedPenIds((prev) => {
+                            const next = new Set(prev)
+                            const ids = inShed.map((p) => p.id)
+                            const allOn = ids.every((id) => next.has(id))
+                            if (allOn) ids.forEach((id) => next.delete(id))
+                            else ids.forEach((id) => next.add(id))
+                            return next
+                          })
+                        }}
+                      >
+                        {shed.name} — tap to select all
+                      </button>
+                      {inShed.map((p) => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => toggleSelect(p.id)}
+                          className={`w-full text-left px-3 py-2.5 text-sm flex items-center gap-2 ${
+                            selectedPenIds.has(p.id) ? 'bg-green-50' : 'hover:bg-slate-50'
+                          }`}
+                        >
+                          <span
+                            className={`h-4 w-4 rounded border flex items-center justify-center text-[10px] ${
+                              selectedPenIds.has(p.id)
+                                ? 'bg-green-600 border-green-600 text-white'
+                                : 'border-slate-300'
+                            }`}
+                          >
+                            {selectedPenIds.has(p.id) ? '✓' : ''}
+                          </span>
+                          {p.name}
+                        </button>
+                      ))}
+                    </li>
+                  ))}
+                  {shedGroups.ungrouped.map((p) => (
                     <li key={p.id}>
                       <button
                         type="button"
