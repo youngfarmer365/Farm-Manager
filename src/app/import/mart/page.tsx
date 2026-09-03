@@ -65,7 +65,9 @@ function parseMartXml(xmlText: string): {
       if (sexRaw === 'M' || sexRaw === 'MALE') sex = 'male'
       if (sexRaw === 'F' || sexRaw === 'FEMALE') sex = 'female'
 
-      const tag = get('Tag') || get('OfficialTag') || get('AnimalId') || get('EID')
+      const tagRaw = get('Tag') || get('TagNo') || get('OfficialTag') || get('AnimalId') || get('EID')
+      let tag = tagRaw.replace(/\s/g, '')
+      if (tag && !tag.startsWith('372') && /^\d{12}$/.test(tag)) tag = '372' + tag
       const weightRaw = get('Weight') || get('LiveWeight')
       const priceRaw = get('Price') || get('Amount')
 
