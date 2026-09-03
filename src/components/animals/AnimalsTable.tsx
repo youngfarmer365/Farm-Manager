@@ -22,6 +22,7 @@ type ColumnId =
   | 'short_tag'
   | 'tag'
   | 'group_name'
+  | 'shed_name'
   | 'pen_name'
   | 'herd_number'
   | 'purchase_from'
@@ -50,6 +51,7 @@ const ALL_COLUMNS: ColumnDef[] = [
   { id: 'short_tag', label: 'Short tag', defaultVisible: true, footer: 'none' },
   { id: 'tag', label: 'Full tag', sortField: 'tag', defaultVisible: false, footer: 'none' },
   { id: 'group_name', label: 'Group', sortField: 'group_name', defaultVisible: true, footer: 'none' },
+  { id: 'shed_name', label: 'Shed', defaultVisible: true, footer: 'none' },
   { id: 'pen_name', label: 'Pen', sortField: 'pen_name', defaultVisible: true, footer: 'none' },
   { id: 'herd_number', label: 'Herd', defaultVisible: true, footer: 'none' },
   { id: 'purchase_from', label: 'Purchase from', defaultVisible: false, footer: 'none' },
@@ -67,7 +69,7 @@ const ALL_COLUMNS: ColumnDef[] = [
   { id: 'status', label: 'Status', defaultVisible: true, footer: 'none' },
 ]
 
-const STORAGE_KEY = 'farm-manager-animal-columns-v2'
+const STORAGE_KEY = 'farm-manager-animal-columns-v3'
 
 function shortTag(tag: string) {
   const c = (tag || '').replace(/\s/g, '')
@@ -227,6 +229,8 @@ export function AnimalsTable({
         return <span className="font-mono text-xs text-slate-600">{a.tag}</span>
       case 'group_name':
         return a.group_name || '—'
+      case 'shed_name':
+        return (a as { shed_name?: string | null }).shed_name || '—'
       case 'pen_name':
         return a.pen_name || '—'
       case 'herd_number':
