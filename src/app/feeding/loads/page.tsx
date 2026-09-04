@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
-import { groupPensByShed, housingPens, type PenRow } from '@/lib/pens'
+import { groupPensByShed, penLabel, type PenRow } from '@/lib/pens'
 
 interface Program {
   id: string
@@ -126,9 +126,20 @@ export default function LoadsPage() {
 
     const penIds = (rows || []).map((r) => r.pen_id)
     const { data: penRows } = penIds.length
-      ? await supabase.from('pens').select('id, name').in('id', penIds)
+      ? await supabase.from('pens').select('id, name, type, parent_id').in('id', penIds)
       : { data: [] }
-    const nameById = new Map((penRows || []).map((p) => [p.id, p.name]))
+    const parentIds = [
+      ...new Set(
+        ((penRows || []) as PenRow[]).map((p) => p.parent_id).filter((id): id is string => !!id)
+      ),
+    ]
+    const { data: shedRows } = parentIds.length
+      ? await supabase.from('pens').select('id, name, type, parent_id').in('id', parentIds)
+      : { data: [] }
+    const allPens = ([...(penRows || []), ...(shedRows || [])] as PenRow[])
+    const nameById = new Map(
+      ((penRows || []) as PenRow[]).map((p) => [p.id, penLabel(p, allPens)])
+    )
 
     setLoadPens(
       (rows || []).map((r) => ({
