@@ -3,11 +3,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { getFarmAccess } from '@/lib/farm-access'
+import { groupPensByShed, isShed, type PenRow } from '@/lib/pens'
 
 interface PenCount {
   id: string
   name: string
   type: string | null
+  parent_id?: string | null
   count: number
 }
 
@@ -40,7 +42,7 @@ export default function StockCheckPage() {
       await Promise.all([
         supabase
           .from('pens')
-          .select('id, name, type')
+          .select('id, name, type, parent_id')
           .eq('farm_id', access.farmId)
           .eq('is_active', true)
           .order('name'),
@@ -78,6 +80,7 @@ export default function StockCheckPage() {
       id: p.id,
       name: p.name,
       type: p.type,
+      parent_id: (p as PenRow).parent_id || null,
       count: byPen.get(p.id) || 0,
     }))
     setPens(pList)
@@ -125,24 +128,39 @@ export default function StockCheckPage() {
         {error && <p className="text-base font-semibold text-red-700">{error}</p>}
 
         <section>
-          <h2 className="mb-2 text-lg font-bold uppercase tracking-wide text-slate-800">Pens</h2>
+          <h2 className="mb-2 text-lg font-bold uppercase tracking-wide text-slate-800">Sheds & pens</h2>
           <ul className="overflow-hidden rounded-2xl border-4 border-slate-600 bg-white divide-y-2 divide-slate-200">
-            {pens.length === 0 && !loading && (
+            {pens.filter((p) => !isShed(p) && (p.type || '').toLowerCase() !== 'field').length === 0 &&
+              !loading && (
               <li className="p-4 font-semibold text-slate-600">No pens yet</li>
             )}
-            {pens.map((p) => (
-              <li key={p.id} className="flex items-center justify-between gap-3 px-4 py-4">
-                <div>
-                  <div className="text-xl font-bold">{p.name}</div>
-                  {p.type && p.type !== 'pen' && (
-                    <div className="text-sm font-semibold capitalize text-slate-600">{p.type}</div>
-                  )}
-                </div>
-                <div className="min-w-[4.5rem] rounded-2xl bg-brand-700 px-3 py-2 text-center text-3xl font-bold text-white">
-                  {p.count}
-                </div>
+            {groupPensByShed(pens).grouped.map(({ shed, pens: inShed }) => (
+              <li key={shed.id}>
+                <div className="bg-slate-200 px-4 py-2 text-base font-bold">{shed.name}</div>
+                {inShed.map((p) => {
+                  const row = pens.find((x) => x.id === p.id)
+                  return (
+                    <div key={p.id} className="flex items-center justify-between gap-3 px-4 py-3 pl-6">
+                      <div className="text-xl font-bold">{p.name}</div>
+                      <div className="min-w-[4.5rem] rounded-2xl bg-brand-700 px-3 py-2 text-center text-3xl font-bold text-white">
+                        {row?.count ?? 0}
+                      </div>
+                    </div>
+                  )
+                })}
               </li>
             ))}
+            {groupPensByShed(pens).ungrouped.map((p) => {
+              const row = pens.find((x) => x.id === p.id)
+              return (
+                <li key={p.id} className="flex items-center justify-between gap-3 px-4 py-4">
+                  <div className="text-xl font-bold">{p.name}</div>
+                  <div className="min-w-[4.5rem] rounded-2xl bg-brand-700 px-3 py-2 text-center text-3xl font-bold text-white">
+                    {row?.count ?? 0}
+                  </div>
+                </li>
+              )
+            })}
           </ul>
         </section>
 
