@@ -13,13 +13,15 @@ import type {
 } from '@/types/database'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
-import { groupPensByShed, housingPens, penLabel } from '@/lib/pens'
+import { groupPensByShed, housingPens, isShed, penLabel } from '@/lib/pens'
 
 interface Herd {
   id: string
   herd_number: string
   name: string | null
 }
+
+const EMPTY_PEN = '00000000-0000-0000-0000-000000000000'
 
 export default function AnimalsPage() {
   const [animals, setAnimals] = useState<AnimalEnriched[]>([])
@@ -35,6 +37,14 @@ export default function AnimalsPage() {
   const [busy, setBusy] = useState(false)
   const [movePenId, setMovePenId] = useState('')
   const [withdrawalByAnimal, setWithdrawalByAnimal] = useState<Record<string, number>>({})
+  const [shedId, setShedId] = useState('')
+  const [penId, setPenId] = useState('')
+
+  const shedGroups = groupPensByShed(pens)
+  const sheds = pens.filter(isShed).sort((a, b) => a.name.localeCompare(b.name))
+  const pensInSelectedShed = shedId
+    ? shedGroups.grouped.find((g) => g.shed.id === shedId)?.pens || []
+    : [...shedGroups.grouped.flatMap((g) => g.pens), ...shedGroups.ungrouped]
 
   useEffect(() => {
     async function init() {
@@ -89,7 +99,11 @@ export default function AnimalsPage() {
     else query = query.eq('status', 'active')
 
     if (filters.group_ids?.length) query = query.in('group_id', filters.group_ids)
-    if (filters.pen_ids?.length) query = query.in('pen_id', filters.pen_ids)
+    if ((filters as any).no_pen) {
+      query = query.is('pen_id', null)
+    } else if (filters.pen_ids?.length) {
+      query = query.in('pen_id', filters.pen_ids)
+    }
     if ((filters as any).herd_ids?.length) {
       query = query.in('herd_id', (filters as any).herd_ids)
     }
@@ -170,6 +184,59 @@ export default function AnimalsPage() {
   useEffect(() => {
     loadAnimals()
   }, [loadAnimals])
+
+  function applyLocation(nextShed: string, nextPen: string) {
+    setShedId(nextShed)
+    setPenId(nextPen)
+    setFilters((prev) => {
+      const next: AnimalFilters = { ...prev }
+      const extra = next as AnimalFilters & { no_pen?: boolean }
+      if (nextShed === '__none__' || nextPen === '__none__') {
+        extra.no_pen = true
+        next.pen_ids = undefined
+      } else if (nextPen) {
+        extra.no_pen = undefined
+        next.pen_ids = [nextPen]
+      } else if (nextShed === '__ungrouped') {
+        extra.no_pen = undefined
+        const ids = groupPensByShed(pens).ungrouped.map((p) => p.id)
+        next.pen_ids = ids.length ? ids : [EMPTY_PEN]
+      } else if (nextShed) {
+        extra.no_pen = undefined
+        const ids =
+          groupPensByShed(pens).grouped.find((g) => g.shed.id === nextShed)?.pens.map((p) => p.id) ||
+          []
+        next.pen_ids = ids.length ? ids : [EMPTY_PEN]
+      } else {
+        extra.no_pen = undefined
+        next.pen_ids = undefined
+      }
+      return next
+    })
+  }
+
+  function onPanelApply(next: AnimalFilters) {
+    const extra = next as AnimalFilters & { no_pen?: boolean }
+    extra.no_pen = undefined
+    setFilters(next)
+    const ids = next.pen_ids || []
+    if (!ids.length) {
+      setShedId('')
+      setPenId('')
+      return
+    }
+    if (ids.length === 1) {
+      const pen = pens.find((p) => p.id === ids[0])
+      setPenId(ids[0])
+      setShedId(pen?.parent_id || '')
+      return
+    }
+    const parents = new Set(
+      ids.map((id) => pens.find((p) => p.id === id)?.parent_id).filter(Boolean) as string[]
+    )
+    setPenId('')
+    setShedId(parents.size === 1 ? Array.from(parents)[0] : '')
+  }
 
   const handleSort = (field: AnimalSortField) => {
     setSort((prev) =>
@@ -281,6 +348,9 @@ export default function AnimalsPage() {
   const navLink =
     'rounded-lg border border-brand-200 bg-brand-50 px-3 py-1.5 text-sm font-medium text-brand-800 hover:border-brand-300 hover:bg-brand-100'
 
+  const locationSelect =
+    'min-h-[48px] w-full rounded-lg border-2 border-slate-400 bg-white px-3 py-2 text-base text-slate-900'
+
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="border-b border-slate-200 bg-white px-4 py-3 print:hidden">
@@ -319,17 +389,77 @@ export default function AnimalsPage() {
 
       <main className="mx-auto max-w-7xl px-4 py-6">
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-4">
-          <aside className="print:hidden lg:col-span-1">
+          <aside className="print:hidden lg:col-span-1 lg:order-1 order-2">
             <AnimalFiltersPanel
               groups={groups}
               pens={pens}
               herds={herds}
               initialFilters={filters}
-              onApply={setFilters}
+              onApply={onPanelApply}
             />
           </aside>
 
-          <section className="space-y-3 lg:col-span-3">
+          <section className="space-y-3 lg:col-span-3 lg:order-2 order-1">
+            <div className="rounded-xl border-2 border-slate-300 bg-white p-3 print:hidden">
+              <p className="mb-2 text-sm font-bold text-slate-900">Shed and pen</p>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <label className="block">
+                  <span className="mb-1 block text-xs font-semibold text-slate-600">Shed</span>
+                  <select
+                    className={locationSelect}
+                    value={shedId}
+                    onChange={(e) => applyLocation(e.target.value, '')}
+                  >
+                    <option value="">All sheds</option>
+                    {sheds.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                    {shedGroups.ungrouped.length > 0 && (
+                      <option value="__ungrouped">Pens with no shed</option>
+                    )}
+                    <option value="__none__">No pen</option>
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs font-semibold text-slate-600">Pen</span>
+                  <select
+                    className={locationSelect}
+                    value={penId}
+                    onChange={(e) => applyLocation(shedId === '__none__' ? '' : shedId, e.target.value)}
+                  >
+                    <option value="">
+                      {shedId && shedId !== '__none__' && shedId !== '__ungrouped'
+                        ? 'All pens in this shed'
+                        : 'All pens'}
+                    </option>
+                    {shedId === '__ungrouped'
+                      ? shedGroups.ungrouped.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name}
+                          </option>
+                        ))
+                      : pensInSelectedShed.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name}
+                          </option>
+                        ))}
+                    <option value="__none__">No pen</option>
+                  </select>
+                </label>
+              </div>
+              {(shedId || penId) && (
+                <button
+                  type="button"
+                  onClick={() => applyLocation('', '')}
+                  className="mt-2 text-sm font-semibold text-brand-800 underline"
+                >
+                  Clear shed / pen
+                </button>
+              )}
+            </div>
+
             <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-slate-600">
               <span className="font-medium text-slate-800">
                 {loading ? 'Loading…' : `${count} animal${count === 1 ? '' : 's'}`}
