@@ -193,7 +193,7 @@ export default function MobileAnimalsPage() {
 
   return (
     <div className="min-h-screen bg-slate-200">
-      <header className="sticky top-0 z-10 border-b-4 border-slate-600 bg-white px-4 py-4">
+      <header className="sticky top-0 z-10 border-b-4 border-slate-600 bg-white px-4 py-4 phone-header">
         <div className="flex items-center justify-between gap-2">
           <h1 className="text-2xl font-bold text-slate-900">Animals</h1>
           <button

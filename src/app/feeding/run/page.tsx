@@ -13,6 +13,12 @@ import {
 } from '@/lib/feeding'
 import { getFarmAccess, hideFeedPrices } from '@/lib/farm-access'
 import { penLabel, type PenRow } from '@/lib/pens'
+import {
+  clearSuspendedRun,
+  loadSuspendedRun,
+  saveSuspendedRun,
+  type SuspendedFeedingRun,
+} from '@/lib/feeding-run-store'
 
 interface Load {
   id: string
@@ -72,24 +78,132 @@ export default function FeedingRunPage() {
   const [savedRunId, setSavedRunId] = useState<string | null>(null)
   const [summaryPens, setSummaryPens] = useState<SummaryPen[]>([])
   const [hidePrices, setHidePrices] = useState(false)
+  const [ready, setReady] = useState(false)
+  const [pausedRun, setPausedRun] = useState<SuspendedFeedingRun | null>(null)
 
   const supabase = createClient()
+
+  function applySuspended(data: SuspendedFeedingRun) {
+    setLoad(data.load)
+    setLoadPens(data.loadPens)
+    setStep(data.step)
+    setPenIndex(Math.min(data.penIndex, Math.max(0, data.loadPens.length - 1)))
+    setMixRows(data.mixRows)
+    setPhaseLabel(data.phaseLabel)
+    setPensTotalKg(data.pensTotalKg)
+    setBufferKg(data.bufferKg)
+    setTotalKg(data.totalKg)
+    setTotalCost(data.totalCost)
+    setStepSize(data.stepSize || 10)
+    setStartedAt(data.startedAt)
+    setHidePrices(data.hidePrices)
+    setPausedRun(null)
+  }
 
   useEffect(() => {
     async function init() {
       const access = await getFarmAccess()
-      if (!access.farmId) return
+      if (!access.farmId) {
+        setReady(true)
+        return
+      }
       setFarmId(access.farmId)
       setHidePrices(hideFeedPrices(access.role))
+
+      const suspended = loadSuspendedRun(access.farmId)
+      if (suspended) {
+        if (suspended.paused) {
+          setPausedRun(suspended)
+        } else {
+          applySuspended(suspended)
+        }
+      }
+
       const { data } = await supabase
         .from('feed_loads')
         .select('id, name, program_id')
         .eq('farm_id', access.farmId)
         .order('created_at', { ascending: false })
       setLoads((data as Load[]) || [])
+      setReady(true)
     }
     init()
   }, [])
+
+  useEffect(() => {
+    if (!ready || !farmId || !load) return
+    if (step !== 'fill' && step !== 'feed') return
+    saveSuspendedRun({
+      farmId,
+      load,
+      loadPens,
+      step,
+      penIndex,
+      mixRows,
+      phaseLabel,
+      pensTotalKg,
+      bufferKg,
+      totalKg,
+      totalCost,
+      stepSize,
+      startedAt,
+      hidePrices,
+      paused: false,
+      savedAt: new Date().toISOString(),
+    })
+  }, [
+    ready,
+    farmId,
+    load,
+    loadPens,
+    step,
+    penIndex,
+    mixRows,
+    phaseLabel,
+    pensTotalKg,
+    bufferKg,
+    totalKg,
+    totalCost,
+    stepSize,
+    startedAt,
+    hidePrices,
+  ])
+
+  function pauseRun() {
+    if (farmId && load && (step === 'fill' || step === 'feed')) {
+      const snapped: SuspendedFeedingRun = {
+        farmId,
+        load,
+        loadPens,
+        step,
+        penIndex,
+        mixRows,
+        phaseLabel,
+        pensTotalKg,
+        bufferKg,
+        totalKg,
+        totalCost,
+        stepSize,
+        startedAt,
+        hidePrices,
+        paused: true,
+        savedAt: new Date().toISOString(),
+      }
+      saveSuspendedRun(snapped)
+      setPausedRun(snapped)
+    }
+    setStep('pick')
+  }
+
+  function resumePaused() {
+    if (!pausedRun) return
+    applySuspended({ ...pausedRun, paused: false })
+  }
+
+  function discardPaused() {
+    clearSuspendedRun()
+    setPausedRun(null)
+  }
 
   async function loadDietPercents(dietId: string): Promise<IngredientPercent[]> {
     const { data } = await supabase
@@ -193,6 +307,8 @@ export default function FeedingRunPage() {
     setSavedRunId(null)
     setFinishedAt(null)
     setSummaryPens([])
+    clearSuspendedRun()
+    setPausedRun(null)
 
     const { data: rows, error: qErr } = await supabase
       .from('feed_load_pens')
@@ -261,25 +377,19 @@ export default function FeedingRunPage() {
     if (!load || !loadPens[penIndex]) return
     const pen = loadPens[penIndex]
     const nextKg = Math.max(0, Number(pen.daily_amount_kg) + delta)
-    setSaving(true)
-
-    const { error: uErr } = await supabase
-      .from('feed_load_pens')
-      .update({ daily_amount_kg: nextKg })
-      .eq('id', pen.id)
-
-    if (uErr) {
-      setError(uErr.message)
-      setSaving(false)
-      return
-    }
-
     const updated = loadPens.map((p, i) =>
       i === penIndex ? { ...p, daily_amount_kg: nextKg } : p
     )
     setLoadPens(updated)
     await computeMix(load, updated, Number(bufferKg) || 0)
-    setSaving(false)
+    supabase
+      .from('feed_load_pens')
+      .update({ daily_amount_kg: nextKg })
+      .eq('id', pen.id)
+      .then(({ error: uErr }) => {
+        if (uErr) setError('No signal — amounts kept on this phone until you finish.')
+        else setError(null)
+      })
   }
 
   async function finishRun() {
@@ -358,7 +468,11 @@ export default function FeedingRunPage() {
       .single()
 
     if (runErr || !run) {
-      setError(runErr?.message || 'Failed to save run')
+      setError(
+        runErr?.message
+          ? `Can't finish yet — ${runErr.message}. This load is still held on the phone.`
+          : "Can't finish yet — no signal. This load is still held on the phone."
+      )
       setSaving(false)
       return
     }
@@ -455,16 +569,26 @@ export default function FeedingRunPage() {
 
     setSavedRunId(run.id)
     setSaving(false)
+    clearSuspendedRun()
+    setPausedRun(null)
     setStep('summary')
   }
 
   const currentPen = loadPens[penIndex]
   const bufNum = Number(bufferKg) || 0
 
+  if (!ready) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-100 text-sm font-semibold text-slate-600">
+        Loading…
+      </div>
+    )
+  }
+
   if (step === 'pick') {
     return (
-      <div className="min-h-screen bg-slate-100">
-        <header className="bg-white border-b px-4 py-3">
+      <div className="min-h-screen bg-slate-100 phone-footer">
+        <header className="bg-white border-b px-4 py-3 phone-header">
           <div className="max-w-2xl mx-auto flex justify-between">
             <h1 className="text-xl font-bold">Feeding run</h1>
             <Link href="/feeding" className="text-sm text-slate-600">
@@ -478,6 +602,33 @@ export default function FeedingRunPage() {
             {hidePrices ? '' : ', €/head'}
             , history & stock).
           </p>
+          {pausedRun && (
+            <div className="rounded-xl border-2 border-amber-700 bg-amber-50 p-4 space-y-3">
+              <p className="font-bold text-amber-950">Unfinished load on this phone</p>
+              <p className="text-sm text-amber-900">
+                {pausedRun.load.name}
+                {pausedRun.step === 'feed'
+                  ? ` · pen ${pausedRun.penIndex + 1} of ${pausedRun.loadPens.length}`
+                  : ' · fill sheet'}
+              </p>
+              <div className="flex flex-col gap-2">
+                <button
+                  type="button"
+                  onClick={resumePaused}
+                  className="w-full rounded-xl bg-green-600 py-3 text-base font-bold text-white"
+                >
+                  Resume this load
+                </button>
+                <button
+                  type="button"
+                  onClick={discardPaused}
+                  className="w-full rounded-xl border border-slate-400 bg-white py-2 text-sm font-semibold text-slate-700"
+                >
+                  Discard and start another
+                </button>
+              </div>
+            </div>
+          )}
           {error && (
             <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-3">
               {error}
@@ -512,8 +663,8 @@ export default function FeedingRunPage() {
   if (step === 'buffer') {
     const preview = Math.max(0, pensTotalKg + bufNum)
     return (
-      <div className="min-h-screen bg-amber-50">
-        <header className="bg-amber-500 text-white px-4 py-4">
+      <div className="min-h-screen bg-amber-50 phone-footer">
+        <header className="bg-amber-500 text-white px-4 py-4 phone-header">
           <div className="max-w-md mx-auto flex justify-between items-center">
             <h1 className="text-xl font-bold">BUFFER</h1>
             <button type="button" onClick={() => setStep('pick')} className="text-sm underline">
@@ -574,7 +725,7 @@ export default function FeedingRunPage() {
   if (step === 'fill') {
     return (
       <div className="min-h-screen bg-slate-900 text-white flex flex-col">
-        <header className="px-4 py-3 border-b border-slate-700 flex justify-between gap-2">
+        <header className="px-4 py-3 border-b border-slate-700 flex justify-between gap-2 phone-header">
           <div>
             <h1 className="text-lg font-bold">FILL · {load?.name}</h1>
             <p className="text-xs text-slate-400">{phaseLabel}</p>
@@ -583,8 +734,8 @@ export default function FeedingRunPage() {
             <button type="button" onClick={() => setStep('buffer')} className="underline text-amber-300">
               Buffer
             </button>
-            <button type="button" onClick={() => setStep('pick')} className="text-slate-500">
-              Exit
+            <button type="button" onClick={pauseRun} className="text-slate-500">
+              Pause
             </button>
           </div>
         </header>
@@ -631,7 +782,7 @@ export default function FeedingRunPage() {
             </ol>
           )}
         </main>
-        <div className="p-4 border-t border-slate-700 max-w-2xl mx-auto w-full">
+        <div className="p-4 border-t border-slate-700 max-w-2xl mx-auto w-full phone-footer">
           <button
             type="button"
             onClick={() => {
@@ -664,8 +815,8 @@ export default function FeedingRunPage() {
         }))
 
     return (
-      <div className="min-h-screen bg-slate-50">
-        <header className="bg-green-700 text-white px-4 py-4">
+      <div className="min-h-screen bg-slate-50 phone-footer">
+        <header className="bg-green-700 text-white px-4 py-4 phone-header">
           <div className="max-w-2xl mx-auto">
             <h1 className="text-xl font-bold">Load complete</h1>
             <p className="text-sm text-green-100">{load?.name}</p>
@@ -801,7 +952,7 @@ export default function FeedingRunPage() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-white flex flex-col">
-      <header className="px-4 py-3 flex justify-between border-b border-slate-800">
+      <header className="px-4 py-3 flex justify-between border-b border-slate-800 phone-header">
         <button
           type="button"
           onClick={async () => {
@@ -815,8 +966,8 @@ export default function FeedingRunPage() {
         <span className="text-sm text-slate-400">
           {penIndex + 1}/{loadPens.length}
         </span>
-        <button type="button" onClick={() => setStep('pick')} className="text-sm text-slate-500">
-          Exit
+        <button type="button" onClick={pauseRun} className="text-sm text-slate-400">
+          Pause
         </button>
       </header>
 
@@ -863,7 +1014,7 @@ export default function FeedingRunPage() {
         {error && <p className="text-red-400 text-sm mt-4">{error}</p>}
       </main>
 
-      <div className="p-4 grid grid-cols-2 gap-3 max-w-lg mx-auto w-full">
+      <div className="p-4 grid grid-cols-2 gap-3 max-w-lg mx-auto w-full phone-footer">
         <button
           type="button"
           disabled={penIndex === 0}

@@ -121,7 +121,7 @@ export default function MobileAnimalDetailPage() {
 
   return (
     <div className="min-h-screen bg-slate-200 pb-8">
-      <header className="sticky top-0 z-10 border-b-4 border-slate-700 bg-white px-4 py-3">
+      <header className="sticky top-0 z-10 border-b-4 border-slate-700 bg-white px-4 py-3 phone-header">
         <Link
           href="/m/animals"
           className="inline-flex min-h-[44px] items-center text-base font-bold text-brand-800"
