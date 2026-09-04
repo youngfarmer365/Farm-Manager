@@ -10,6 +10,11 @@
   --surface: #ffffff;
   --border: #e2e8f0;
   --muted: #64748b;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  /* Extra gap so buttons sit clear of notch / Dynamic Island / home bar */
+  --phone-top: calc(var(--safe-top) + 12px);
+  --phone-bottom: calc(var(--safe-bottom) + 14px);
 }
 
 body {
@@ -36,6 +41,14 @@ button,
 a,
 label {
   touch-action: manipulation;
+}
+
+.phone-header {
+  padding-top: var(--phone-top);
+}
+
+.phone-footer {
+  padding-bottom: var(--phone-bottom);
 }
 
 /* Leaflet adds .leaflet-container onto the SAME div we size inline.

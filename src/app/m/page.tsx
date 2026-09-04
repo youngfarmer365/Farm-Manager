@@ -29,7 +29,7 @@ export default function MobileHomePage() {
 
   return (
     <div className="min-h-screen bg-slate-200">
-      <header className="border-b-4 border-brand-800 bg-brand-800 px-5 pb-6 pt-10 text-white">
+      <header className="border-b-4 border-brand-800 bg-brand-800 px-5 pb-6 pt-6 text-white">
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-sm font-bold uppercase tracking-wide text-brand-100">Farm Manager</p>
