@@ -107,7 +107,7 @@ export default function StockCheckPage() {
 
   return (
     <div className="min-h-screen bg-slate-200">
-      <header className="border-b-4 border-brand-900 bg-brand-800 px-5 pb-5 pt-10 text-white">
+      <header className="border-b-4 border-brand-900 bg-brand-800 px-5 pb-5 pt-6 text-white">
         <p className="text-sm font-bold uppercase tracking-wide text-brand-100">Yard</p>
         <h1 className="mt-1 text-3xl font-bold">Stock check</h1>
         <p className="mt-2 text-base font-semibold text-brand-50">
