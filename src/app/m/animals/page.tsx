@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { getFarmAccess } from '@/lib/farm-access'
+import { groupPensByShed, type PenRow } from '@/lib/pens'
 
 interface Row {
   id: string
@@ -25,6 +26,8 @@ interface Row {
 interface Opt {
   id: string
   name: string
+  type?: string | null
+  parent_id?: string | null
 }
 
 interface HerdOpt {
@@ -88,7 +91,7 @@ export default function MobileAnimalsPage() {
 
       const penRes = await supabase
         .from('pens')
-        .select('id, name')
+        .select('id, name, type, parent_id')
         .eq('farm_id', access.farmId)
         .eq('is_active', true)
         .order('name')
@@ -264,14 +267,23 @@ export default function MobileAnimalsPage() {
             </div>
 
             <div>
-              <label className="mb-1 block text-sm font-bold text-slate-800">Pen / field</label>
+              <label className="mb-1 block text-sm font-bold text-slate-800">Pen</label>
               <select
                 className={selectCls}
                 value={penId}
                 onChange={(e) => setPenId(e.target.value)}
               >
                 <option value="">All pens</option>
-                {pens.map((p) => (
+                {groupPensByShed(pens as PenRow[]).grouped.map(({ shed, pens: inShed }) => (
+                  <optgroup key={shed.id} label={shed.name}>
+                    {inShed.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+                {groupPensByShed(pens as PenRow[]).ungrouped.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
                   </option>
