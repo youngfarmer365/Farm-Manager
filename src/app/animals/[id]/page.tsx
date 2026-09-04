@@ -6,10 +6,13 @@ import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { formatWeight, formatCurrency, formatDate, formatADG } from '@/lib/utils'
 import { exactAge } from '@/lib/age'
+import { groupPensByShed, type PenRow } from '@/lib/pens'
 
 interface Option {
   id: string
   name: string
+  type?: string | null
+  parent_id?: string | null
 }
 
 interface HerdOption {
@@ -132,7 +135,7 @@ export default function AnimalDetailPage() {
       supabase.from('weights').select('*').eq('animal_id', id).order('weighed_at', { ascending: true }),
       supabase.from('treatments').select('*').eq('animal_id', id).order('treated_at', { ascending: false }),
       supabase.from('groups').select('id, name').eq('farm_id', a.farm_id).eq('is_active', true).order('name'),
-      supabase.from('pens').select('id, name').eq('farm_id', a.farm_id).eq('is_active', true).order('name'),
+      supabase.from('pens').select('id, name, type, parent_id').eq('farm_id', a.farm_id).eq('is_active', true).order('name'),
       supabase
         .from('herds')
         .select('id, herd_number, name')
@@ -483,14 +486,23 @@ export default function AnimalDetailPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1">Pen / Field</label>
+              <label className="block text-sm font-medium mb-1">Pen</label>
               <select
                 value={penId}
                 onChange={(e) => setPenId(e.target.value)}
                 className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
               >
                 <option value="">— None —</option>
-                {pens.map((p) => (
+                {groupPensByShed(pens as PenRow[]).grouped.map(({ shed, pens: inShed }) => (
+                  <optgroup key={shed.id} label={shed.name}>
+                    {inShed.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+                {groupPensByShed(pens as PenRow[]).ungrouped.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
                   </option>
@@ -529,211 +541,3 @@ export default function AnimalDetailPage() {
             </button>
           </div>
         </form>
-
-        {/* Treatments */}
-        <section className="bg-white rounded-xl border p-5 shadow-sm space-y-3">
-          <div className="flex justify-between items-center">
-            <h2 className="font-semibold">Treatments</h2>
-            <Link href="/medicines/treat" className="text-xs text-brand-700 hover:underline">
-              Record treatment
-            </Link>
-          </div>
-          {treatments.length === 0 ? (
-            <p className="text-sm text-slate-500">None recorded.</p>
-          ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-slate-500 border-b">
-                  <th className="py-1">Date</th>
-                  <th className="py-1">Medicine</th>
-                  <th className="py-1">Ml</th>
-                  <th className="py-1">Cost</th>
-                  <th className="py-1">W/d</th>
-                </tr>
-              </thead>
-              <tbody>
-                {treatments.map((t) => {
-                  const w = withdrawalStatus(t.treated_at, t.withdrawal_days)
-                  return (
-                    <tr key={t.id} className={`border-b ${w.inWithdrawal ? 'bg-amber-50' : ''}`}>
-                      <td className="py-1.5">{formatDate(t.treated_at)}</td>
-                      <td className="py-1.5 font-medium">{t.medicine_name}</td>
-                      <td className="py-1.5">{t.ml_used ?? t.dose ?? '—'}</td>
-                      <td className="py-1.5">{t.cost != null ? formatCurrency(t.cost) : '—'}</td>
-                      <td className="py-1.5">
-                        {w.inWithdrawal ? (
-                          <span className="text-amber-800 font-medium">
-                            {w.daysLeft === 0 ? 'Clear today' : `${w.daysLeft}d`}
-                          </span>
-                        ) : (
-                          <span className="text-green-700">Clear</span>
-                        )}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          )}
-        </section>
-
-        {/* Weights */}
-        <section className="bg-white rounded-xl border p-5 shadow-sm space-y-4">
-          <h2 className="font-semibold">Liveweights</h2>
-          <form onSubmit={saveWeight} className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
-            <div>
-              <label className="block text-sm font-medium mb-1">Date *</label>
-              <input
-                type="date"
-                required
-                value={weighDate}
-                onChange={(e) => setWeighDate(e.target.value)}
-                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Weight (kg) *</label>
-              <input
-                type="number"
-                required
-                step="0.1"
-                min="0"
-                value={weightKg}
-                onChange={(e) => setWeightKg(e.target.value)}
-                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Notes</label>
-              <input
-                type="text"
-                value={weightNotes}
-                onChange={(e) => setWeightNotes(e.target.value)}
-                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-              />
-            </div>
-            <button
-              type="submit"
-              disabled={savingWeight}
-              className="rounded-lg bg-brand-600 text-white px-4 py-2 text-sm font-medium disabled:opacity-50"
-            >
-              {savingWeight ? 'Saving…' : 'Add weight'}
-            </button>
-          </form>
-          {weightMessage && <p className="text-sm text-green-700">{weightMessage}</p>}
-          {weights.length === 0 ? (
-            <p className="text-sm text-slate-500">No weights yet.</p>
-          ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-slate-500 border-b">
-                  <th className="py-1">Date</th>
-                  <th className="py-1">kg</th>
-                  <th className="py-1">Notes</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {weights.map((w) => (
-                  <tr key={w.id} className="border-b">
-                    <td className="py-1.5">{formatDate(w.weighed_at)}</td>
-                    <td className="py-1.5 font-medium">{w.weight_kg}</td>
-                    <td className="py-1.5 text-slate-500">{w.notes || '—'}</td>
-                    <td className="py-1.5 text-right">
-                      <button type="button" onClick={() => deleteWeight(w.id)} className="text-xs text-red-600">
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </section>
-
-        {/* Sale */}
-        <section className="bg-white rounded-xl border p-5 shadow-sm">
-          <h2 className="font-semibold mb-1">Sale / slaughter</h2>
-          <p className="text-xs text-slate-500 mb-4">
-            Dead weight ÷ kill-out % = estimated liveweight → last weight and ADG across the app.
-          </p>
-          <form onSubmit={saveSale} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">Sale / kill date</label>
-                <input
-                  type="date"
-                  value={saleDate}
-                  onChange={(e) => setSaleDate(e.target.value)}
-                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Grade</label>
-                <input
-                  type="text"
-                  value={grade}
-                  onChange={(e) => setGrade(e.target.value)}
-                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Dead weight (kg)</label>
-                <input
-                  type="number"
-                  step="0.1"
-                  value={deadWeight}
-                  onChange={(e) => setDeadWeight(e.target.value)}
-                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Kill-out %</label>
-                <input
-                  type="number"
-                  step="0.1"
-                  value={killOut}
-                  onChange={(e) => setKillOut(e.target.value)}
-                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Est. liveweight</label>
-                <div className="rounded-md border bg-slate-50 px-3 py-2 text-sm font-medium">
-                  {estimatedLiveWeight != null ? `${estimatedLiveWeight} kg` : '—'}
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Sale price (€)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={salePrice}
-                  onChange={(e) => setSalePrice(e.target.value)}
-                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                />
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Sale notes</label>
-              <textarea
-                value={saleNotes}
-                onChange={(e) => setSaleNotes(e.target.value)}
-                rows={2}
-                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-              />
-            </div>
-            {saleMessage && <p className="text-sm text-green-700">{saleMessage}</p>}
-            <button
-              type="submit"
-              disabled={savingSale}
-              className="rounded-lg bg-brand-600 text-white px-4 py-2 text-sm font-medium disabled:opacity-50"
-            >
-              {savingSale ? 'Saving…' : 'Save sale information'}
-            </button>
-          </form>
-        </section>
-      </main>
-    </div>
-  )
-}
