@@ -80,6 +80,8 @@ export default function FeedingRunPage() {
   const [hidePrices, setHidePrices] = useState(false)
   const [ready, setReady] = useState(false)
   const [pausedRun, setPausedRun] = useState<SuspendedFeedingRun | null>(null)
+  const [fillIndex, setFillIndex] = useState(0)
+  const [mixerView, setMixerView] = useState(true)
 
   const supabase = createClient()
 
@@ -97,6 +99,8 @@ export default function FeedingRunPage() {
     setStepSize(data.stepSize || 10)
     setStartedAt(data.startedAt)
     setHidePrices(data.hidePrices)
+    setFillIndex(Math.min(Math.max(0, data.fillIndex || 0), Math.max(0, data.mixRows.length)))
+    setMixerView(data.mixerView !== false)
     setPausedRun(null)
   }
 
@@ -131,6 +135,37 @@ export default function FeedingRunPage() {
   }, [])
 
   useEffect(() => {
+    if (step !== 'fill' && step !== 'feed') return
+    if (typeof navigator === 'undefined' || !('wakeLock' in navigator)) return
+    let sentinel: { release: () => Promise<void> } | null = null
+    let dead = false
+    const request = async () => {
+      try {
+        const s = await (navigator as Navigator & { wakeLock: { request: (t: 'screen') => Promise<{ release: () => Promise<void> }> } }).wakeLock.request(
+          'screen'
+        )
+        if (dead) {
+          await s.release()
+          return
+        }
+        sentinel = s
+      } catch {
+        // iOS needs a gesture first; feed/fill taps re-request via visibility
+      }
+    }
+    void request()
+    const onVis = () => {
+      if (document.visibilityState === 'visible') void request()
+    }
+    document.addEventListener('visibilitychange', onVis)
+    return () => {
+      dead = true
+      document.removeEventListener('visibilitychange', onVis)
+      void sentinel?.release()
+    }
+  }, [step])
+
+  useEffect(() => {
     if (!ready || !farmId || !load) return
     if (step !== 'fill' && step !== 'feed') return
     saveSuspendedRun({
@@ -139,6 +174,8 @@ export default function FeedingRunPage() {
       loadPens,
       step,
       penIndex,
+      fillIndex,
+      mixerView,
       mixRows,
       phaseLabel,
       pensTotalKg,
@@ -158,6 +195,8 @@ export default function FeedingRunPage() {
     loadPens,
     step,
     penIndex,
+    fillIndex,
+    mixerView,
     mixRows,
     phaseLabel,
     pensTotalKg,
@@ -177,6 +216,8 @@ export default function FeedingRunPage() {
         loadPens,
         step,
         penIndex,
+        fillIndex,
+        mixerView,
         mixRows,
         phaseLabel,
         pensTotalKg,
@@ -357,6 +398,8 @@ export default function FeedingRunPage() {
 
     setLoadPens(pens)
     setPenIndex(0)
+    setFillIndex(0)
+    setMixerView(true)
     setPensTotalKg(pens.reduce((s, p) => s + p.daily_amount_kg, 0))
     setStartedAt(new Date().toISOString())
     setStep('buffer')
@@ -370,6 +413,8 @@ export default function FeedingRunPage() {
     }))
     setLoadPens(frozen)
     await computeMix(load, frozen, Number(bufferKg) || 0)
+    setFillIndex(0)
+    setMixerView(true)
     setStep('fill')
   }
 
@@ -722,6 +767,144 @@ export default function FeedingRunPage() {
     )
   }
 
+  if (step === 'fill' && mixerView) {
+    const currentMix = mixRows[fillIndex]
+    const loadedAll = mixRows.length > 0 && fillIndex >= mixRows.length
+    const startFeedOut = () => {
+      setPenIndex(0)
+      setStep('feed')
+    }
+    return (
+      <div className="min-h-screen bg-black text-white flex flex-col">
+        <header className="px-4 py-3 border-b border-slate-800 flex justify-between gap-2 phone-header">
+          <div>
+            <h1 className="text-lg font-bold tracking-wide">MIXER DISPLAY</h1>
+            <p className="text-xs text-slate-400">
+              {load?.name}
+              {phaseLabel ? ` · ${phaseLabel}` : ''}
+            </p>
+          </div>
+          <div className="flex gap-3 text-sm shrink-0 items-center">
+            <button type="button" onClick={() => setMixerView(false)} className="underline text-amber-300">
+              Fill sheet
+            </button>
+            <button type="button" onClick={pauseRun} className="text-slate-500">
+              Pause
+            </button>
+          </div>
+        </header>
+
+        <main className="flex-1 px-3 py-3 max-w-2xl mx-auto w-full flex flex-col">
+          <div className="text-center mb-3">
+            <div className="text-slate-500 text-xs uppercase tracking-wide">Fill total</div>
+            <div className="text-4xl font-bold tabular-nums">{totalKg.toFixed(0)} kg</div>
+          </div>
+
+          {mixRows.length === 0 ? (
+            <p className="text-center text-slate-400 py-10 text-sm">{phaseLabel || 'No mix'}</p>
+          ) : (
+            <>
+              <ol className="space-y-1.5 mb-4">
+                {mixRows.map((r, i) => {
+                  const done = i < fillIndex
+                  const current = i === fillIndex
+                  return (
+                    <li key={r.ingredientId + i}>
+                      <button
+                        type="button"
+                        onClick={() => setFillIndex(i)}
+                        className={`w-full text-left rounded-lg px-2 py-1.5 ${
+                          current ? 'bg-slate-800 ring-2 ring-amber-400' : ''
+                        }`}
+                      >
+                        <div className="flex justify-between text-sm mb-1">
+                          <span className={`truncate ${done ? 'text-green-400' : current ? 'text-white font-bold' : 'text-slate-400'}`}>
+                            {i + 1}. {r.name}
+                          </span>
+                          <span className={`tabular-nums ${done ? 'text-green-400' : current ? 'text-amber-300' : 'text-slate-500'}`}>
+                            {r.kg.toFixed(0)}
+                          </span>
+                        </div>
+                        <div className={`h-2.5 rounded-full overflow-hidden ${current ? 'bg-amber-950' : 'bg-slate-800'}`}>
+                          <div
+                            className={`h-full rounded-full ${done ? 'bg-green-500' : current ? 'bg-amber-400' : 'bg-slate-700'}`}
+                            style={{ width: done ? '100%' : current ? '12%' : '0%' }}
+                          />
+                        </div>
+                      </button>
+                    </li>
+                  )
+                })}
+              </ol>
+
+              <div className="flex-1 flex flex-col items-center justify-center text-center px-2">
+                {loadedAll ? (
+                  <>
+                    <p className="text-green-400 text-sm uppercase tracking-widest mb-2">Mix loaded</p>
+                    <p className="text-3xl font-bold">Scale {totalKg.toFixed(0)} kg</p>
+                    <p className="text-slate-500 text-sm mt-2">Wagon should read the fill total</p>
+                  </>
+                ) : currentMix ? (
+                  <>
+                    <p className="text-slate-500 text-xs uppercase tracking-widest mb-1">
+                      Ingredient {fillIndex + 1} of {mixRows.length}
+                    </p>
+                    <h2 className="text-4xl sm:text-5xl font-bold leading-tight mb-6">{currentMix.name}</h2>
+                    <div className="grid grid-cols-2 gap-6 w-full max-w-md">
+                      <div>
+                        <div className="text-amber-400 text-xs uppercase tracking-wide">Add</div>
+                        <div className="text-6xl font-bold tabular-nums text-amber-300 leading-none">
+                          {currentMix.kg.toFixed(0)}
+                        </div>
+                        <div className="text-slate-500 mt-1">kg</div>
+                      </div>
+                      <div>
+                        <div className="text-green-400 text-xs uppercase tracking-wide">Scale to</div>
+                        <div className="text-6xl font-bold tabular-nums text-green-400 leading-none">
+                          {currentMix.cumulativeKg.toFixed(0)}
+                        </div>
+                        <div className="text-slate-500 mt-1">kg on wagon</div>
+                      </div>
+                    </div>
+                  </>
+                ) : null}
+              </div>
+            </>
+          )}
+        </main>
+
+        <div className="p-4 border-t border-slate-800 max-w-2xl mx-auto w-full space-y-3 phone-footer">
+          {mixRows.length > 0 && !loadedAll && (
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                disabled={fillIndex === 0}
+                onClick={() => setFillIndex((i) => Math.max(0, i - 1))}
+                className="rounded-2xl bg-slate-800 py-4 font-semibold disabled:opacity-40"
+              >
+                ← Back
+              </button>
+              <button
+                type="button"
+                onClick={() => setFillIndex((i) => Math.min(mixRows.length, i + 1))}
+                className="rounded-2xl bg-green-600 py-4 text-lg font-bold"
+              >
+                Loaded →
+              </button>
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={startFeedOut}
+            className="w-full rounded-2xl bg-green-700 py-5 text-xl font-bold"
+          >
+            Start feed out →
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   if (step === 'fill') {
     return (
       <div className="min-h-screen bg-slate-900 text-white flex flex-col">
@@ -731,6 +914,9 @@ export default function FeedingRunPage() {
             <p className="text-xs text-slate-400">{phaseLabel}</p>
           </div>
           <div className="flex gap-3 text-sm shrink-0">
+            <button type="button" onClick={() => setMixerView(true)} className="underline text-amber-300">
+              Mixer display
+            </button>
             <button type="button" onClick={() => setStep('buffer')} className="underline text-amber-300">
               Buffer
             </button>
@@ -973,8 +1159,16 @@ export default function FeedingRunPage() {
 
       <main className="flex-1 flex flex-col items-center justify-center px-4">
         <h1 className="text-5xl font-bold text-center mb-2">{currentPen?.pen_name}</h1>
-        <p className="text-slate-500 text-sm mb-6">
+        <p className="text-slate-500 text-sm mb-2">
           Planned {Number(currentPen?.planned_kg || 0).toFixed(0)} kg
+        </p>
+        <p className="text-slate-500 text-xs mb-6">
+          Wagon left{' '}
+          {loadPens
+            .slice(penIndex)
+            .reduce((s, p) => s + Number(p.daily_amount_kg || 0), 0)
+            .toFixed(0)}{' '}
+          kg
         </p>
         <div className="text-8xl font-bold tabular-nums mb-10">
           {Number(currentPen?.daily_amount_kg || 0).toFixed(0)}

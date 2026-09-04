@@ -32,6 +32,8 @@ export interface SuspendedFeedingRun {
   loadPens: SuspendedLoadPen[]
   step: SuspendedStep
   penIndex: number
+  fillIndex: number
+  mixerView: boolean
   mixRows: SuspendedMixRow[]
   phaseLabel: string
   pensTotalKg: number
@@ -54,7 +56,11 @@ export function loadSuspendedRun(farmId: string): SuspendedFeedingRun | null {
     if (!data?.farmId || data.farmId !== farmId) return null
     if (!data.load?.id || !Array.isArray(data.loadPens) || data.loadPens.length === 0) return null
     if (data.step !== 'fill' && data.step !== 'feed') return null
-    return data
+    return {
+      ...data,
+      fillIndex: Math.max(0, Number(data.fillIndex) || 0),
+      mixerView: data.mixerView !== false,
+    }
   } catch {
     return null
   }
