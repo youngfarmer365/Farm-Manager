@@ -18,12 +18,12 @@ export function BackBar() {
   }
 
   return (
-    <div className="print:hidden sticky top-0 z-[60] border-b-2 border-slate-600 bg-white/95">
-      <div className="mx-auto flex max-w-6xl items-center px-3 py-1.5">
+    <div className="print:hidden sticky top-0 z-[60] border-b-2 border-slate-600 bg-white/95 phone-header">
+      <div className="mx-auto flex max-w-6xl items-center px-3 py-2">
         <button
           type="button"
           onClick={back}
-          className="inline-flex min-h-[40px] items-center rounded-xl border-2 border-slate-700 bg-slate-50 px-4 text-sm font-bold text-slate-900"
+          className="inline-flex min-h-[44px] items-center rounded-xl border-2 border-slate-700 bg-slate-50 px-4 text-sm font-bold text-slate-900"
         >
           ← Back
         </button>

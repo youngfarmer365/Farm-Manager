@@ -33,11 +33,10 @@ export default function MobileLayout({ children }: { children: React.ReactNode }
   return (
     <div className="min-h-screen bg-slate-300 text-slate-900 antialiased">
       <div className="mx-auto min-h-screen max-w-lg bg-slate-200 sm:border-x-2 sm:border-slate-400">
-        <div className={hideNav ? 'pb-0' : 'pb-28'}>{children}</div>
+        <div className={hideNav ? 'pb-0' : 'pb-32'}>{children}</div>
         {!hideNav && (
           <nav
-            className="fixed bottom-0 left-0 right-0 z-50 border-t-4 border-slate-700 bg-slate-900"
-            style={{ paddingBottom: 'max(1.25rem, env(safe-area-inset-bottom))' }}
+            className="fixed bottom-0 left-0 right-0 z-50 border-t-4 border-slate-700 bg-slate-900 phone-footer"
           >
             <div className="mx-auto flex max-w-lg items-stretch justify-around px-1 pt-2">
               {tabs.map((t) => {
