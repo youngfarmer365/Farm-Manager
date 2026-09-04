@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import type { Group } from '@/types/database'
 import { exactAge } from '@/lib/age'
+import { groupPensByShed, type PenRow } from '@/lib/pens'
 
 interface Herd {
   id: string
@@ -16,6 +17,8 @@ interface Herd {
 interface Pen {
   id: string
   name: string
+  type?: string | null
+  parent_id?: string | null
 }
 
 export default function NewAnimalPage() {
@@ -74,7 +77,7 @@ export default function NewAnimalPage() {
           .eq('is_active', true),
         supabase
           .from('pens')
-          .select('id, name')
+          .select('id, name, type, parent_id')
           .eq('farm_id', membership.farm_id)
           .eq('is_active', true),
       ])
@@ -227,14 +230,23 @@ export default function NewAnimalPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1">Pen / Field</label>
+            <label className="block text-sm font-medium mb-1">Pen</label>
             <select
               value={penId}
               onChange={(e) => setPenId(e.target.value)}
               className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
             >
               <option value="">— None —</option>
-              {pens.map((p) => (
+              {groupPensByShed(pens as PenRow[]).grouped.map(({ shed, pens: inShed }) => (
+                <optgroup key={shed.id} label={shed.name}>
+                  {inShed.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+              {groupPensByShed(pens as PenRow[]).ungrouped.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
                 </option>
