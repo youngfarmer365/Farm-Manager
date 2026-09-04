@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 import type { Group } from '@/types/database'
+import { groupPensByShed, type PenRow } from '@/lib/pens'
 
 interface ParsedAnimal {
   tag: string
@@ -29,6 +30,8 @@ interface Herd {
 interface Pen {
   id: string
   name: string
+  type?: string | null
+  parent_id?: string | null
 }
 
 function parseIrishDate(d: string | null | undefined): string | null {
@@ -127,7 +130,7 @@ export default function MartImportPage() {
 
       const [{ data: g }, { data: p }, { data: h }] = await Promise.all([
         supabase.from('groups').select('*').eq('farm_id', membership.farm_id).eq('is_active', true),
-        supabase.from('pens').select('id, name').eq('farm_id', membership.farm_id).eq('is_active', true),
+        supabase.from('pens').select('id, name, type, parent_id').eq('farm_id', membership.farm_id).eq('is_active', true),
         supabase
           .from('herds')
           .select('id, herd_number, name')
@@ -421,7 +424,16 @@ export default function MartImportPage() {
                   className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
                 >
                   <option value="">Leave as-is / none</option>
-                  {pens.map((p) => (
+                  {groupPensByShed(pens as PenRow[]).grouped.map(({ shed, pens: inShed }) => (
+                    <optgroup key={shed.id} label={shed.name}>
+                      {inShed.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                  {groupPensByShed(pens as PenRow[]).ungrouped.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.name}
                     </option>
