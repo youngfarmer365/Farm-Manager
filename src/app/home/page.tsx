@@ -78,7 +78,7 @@ export default function HomeHubPage() {
         <Link href="/fields" className={tile + ' border-slate-700 bg-white text-slate-900'}>
           <span className="text-2xl font-bold">Fields</span>
           <span className="mt-2 text-base font-semibold text-slate-700">
-            Map, soil samples, grass, crop history and planning
+            Map, grazing, soil samples, grass and planning
           </span>
         </Link>
         <Link href="/jobs" className={tile + ' border-slate-700 bg-white text-slate-900'}>
