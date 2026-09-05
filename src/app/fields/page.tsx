@@ -111,7 +111,7 @@ export default function FieldsHubPage() {
             return (
               <li key={f.id}>
                 <Link
-                  href={`/fields/${f.id}?year={year}`}
+                  href={`/fields/${f.id}?year=${year}`}
                   className="flex items-center gap-3 rounded-2xl border-4 border-slate-600 bg-white p-4"
                 >
                   <span
