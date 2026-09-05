@@ -56,9 +56,13 @@ export default function FieldsHubPage() {
       <AppHeader title="Fields" />
       <main className="mx-auto max-w-4xl space-y-4 p-4">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <Link href="/fields/map" className="rounded-2xl border-4 border-brand-800 bg-brand-700 p-4 text-white">
+          <Link href="/fields/grazing" className="rounded-2xl border-4 border-brand-800 bg-brand-700 p-4 text-white">
+            <div className="text-lg font-bold">Grazing</div>
+            <div className="text-sm font-semibold text-brand-50">Who is where</div>
+          </Link>
+          <Link href="/fields/map" className="rounded-2xl border-4 border-slate-600 bg-white p-4">
             <div className="text-lg font-bold">Map</div>
-            <div className="text-sm font-semibold text-brand-50">Draw and colour</div>
+            <div className="text-sm font-semibold text-slate-600">Draw and colour</div>
           </Link>
           <Link href="/fields/soil" className="rounded-2xl border-4 border-slate-600 bg-white p-4">
             <div className="text-lg font-bold">Soil samples</div>
@@ -107,7 +111,7 @@ export default function FieldsHubPage() {
             return (
               <li key={f.id}>
                 <Link
-                  href={`/fields/${f.id}?year=${year}`}
+                  href={`/fields/${f.id}?year={year}`}
                   className="flex items-center gap-3 rounded-2xl border-4 border-slate-600 bg-white p-4"
                 >
                   <span
