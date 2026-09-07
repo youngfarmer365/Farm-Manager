@@ -2,7 +2,7 @@
   "name": "Farm Manager",
   "short_name": "Farm",
   "description": "Farm operations — animals, feeding, fields and jobs",
-  "start_url": "/home",
+  "start_url": "/m",
   "scope": "/",
   "display": "standalone",
   "background_color": "#166534",
