@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { canInviteStaff, getFarmAccess, homePathForRole, isYardStaff } from '@/lib/farm-access'
+import { isPhoneDevice } from '@/lib/device'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { LogoutButton } from '@/components/layout/LogoutButton'
@@ -29,8 +30,8 @@ export default function HomeHubPage() {
         router.push('/onboarding')
         return
       }
-      if (isYardStaff(a.role)) {
-        router.replace(homePathForRole(a.role))
+      if (isYardStaff(a.role) || isPhoneDevice()) {
+        router.replace(homePathForRole(a.role, true))
         return
       }
       const supabase = createClient()
@@ -63,10 +64,10 @@ export default function HomeHubPage() {
         </div>
       </header>
       <main className="mx-auto grid max-w-4xl grid-cols-1 gap-4 p-4 sm:grid-cols-2">
-        <Link href="/m" className={tile + ' border-brand-900 bg-brand-700 text-white sm:col-span-2'}>
+        <Link href="/m?stay=1" className={tile + ' border-brand-900 bg-brand-700 text-white sm:col-span-2'}>
           <span className="text-2xl font-bold">Phone app</span>
           <span className="mt-2 text-base font-semibold text-brand-50">
-            Yard view — add to Home Screen
+            Yard view — use this address on your phone: /m
           </span>
         </Link>
         <Link href="/animals" className={tile + ' border-slate-700 bg-white text-slate-900'}>

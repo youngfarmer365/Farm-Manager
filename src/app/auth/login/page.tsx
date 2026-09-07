@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { getFarmAccess, homePathForRole } from '@/lib/farm-access'
+import { isPhoneDevice } from '@/lib/device'
 import { LogoutButton } from '@/components/layout/LogoutButton'
 import { getStayLoggedIn, setStayLoggedIn } from '@/lib/session-pref'
 
@@ -33,7 +34,7 @@ export default function LoginPage() {
   async function afterSession() {
     const access = await getFarmAccess()
     if (!access.farmId) router.push('/onboarding')
-    else router.push(homePathForRole(access.role))
+    else router.push(homePathForRole(access.role, isPhoneDevice()))
     router.refresh()
   }
 
@@ -51,12 +52,12 @@ export default function LoginPage() {
         options: {
           shouldCreateUser: false,
           emailRedirectTo:
-            typeof window !== 'undefined' ? `${window.location.origin}/m` : undefined,
+            typeof window !== 'undefined' ? `${window.location.origin}/home` : undefined,
         },
       })
       setLoading(false)
       if (error) setError(error.message)
-      else setMessage('Check your email for a login link. Open it on this phone.')
+      else setMessage('Check your email for a login link. Open it on this device.')
       return
     }
 
@@ -125,7 +126,7 @@ export default function LoginPage() {
               onChange={(e) => setStay(e.target.checked)}
               className="h-5 w-5"
             />
-            <span className="text-sm font-bold">Stay logged in on this phone</span>
+            <span className="text-sm font-bold">Stay logged in on this device</span>
           </label>
           {error && <p className="text-sm text-red-600">{error}</p>}
           {message && <p className="text-sm font-semibold text-brand-800">{message}</p>}

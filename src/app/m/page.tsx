@@ -2,30 +2,46 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { getFarmAccess, isYardStaff, type FarmRole } from '@/lib/farm-access'
+import { isPhoneDevice } from '@/lib/device'
 import { LogoutButton } from '@/components/layout/LogoutButton'
 
 const tile =
   'flex min-h-[100px] flex-col justify-center rounded-2xl border-4 p-5 text-left'
 
 export default function MobileHomePage() {
+  const router = useRouter()
   const [role, setRole] = useState<FarmRole | null>(null)
   const [farmName, setFarmName] = useState('Farm Manager')
   const [email, setEmail] = useState<string | null>(null)
+  const [ready, setReady] = useState(false)
 
   useEffect(() => {
     getFarmAccess().then(async (a) => {
       setRole(a.role)
       setEmail(a.email)
-      if (!a.farmId) return
-      const supabase = createClient()
-      const { data } = await supabase.from('farms').select('name').eq('id', a.farmId).maybeSingle()
-      if (data?.name) setFarmName(data.name)
+      const stay =
+        typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('stay') === '1'
+      if (a.role && !isYardStaff(a.role) && !isPhoneDevice() && !stay) {
+        router.replace('/home')
+        return
+      }
+      if (a.farmId) {
+        const supabase = createClient()
+        const { data } = await supabase.from('farms').select('name').eq('id', a.farmId).maybeSingle()
+        if (data?.name) setFarmName(data.name)
+      }
+      setReady(true)
     })
-  }, [])
+  }, [router])
 
   const yard = isYardStaff(role)
+
+  if (!ready) {
+    return <p className="p-10 text-center text-lg font-bold text-slate-800">Loading…</p>
+  }
 
   return (
     <div className="min-h-screen bg-slate-200">
@@ -43,6 +59,12 @@ export default function MobileHomePage() {
         </div>
       </header>
       <main className="grid grid-cols-1 gap-3 p-4">
+        {!yard && (
+          <Link href="/home" className={tile + ' border-slate-800 bg-slate-800 text-white'}>
+            <span className="text-2xl font-bold">Computer app</span>
+            <span className="mt-1 font-semibold text-slate-200">Full home — animals, fields, jobs</span>
+          </Link>
+        )}
         <Link href="/m/feeding/run" className={tile + ' border-brand-900 bg-brand-700 text-white'}>
           <span className="text-2xl font-bold">Feeding run</span>
           <span className="mt-1 font-semibold text-brand-50">Start today’s load</span>
