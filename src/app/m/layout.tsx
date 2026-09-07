@@ -4,12 +4,13 @@ import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import { getFarmAccess, isYardStaff } from '@/lib/farm-access'
+import { applyMobilePrefs } from '@/lib/mobile-prefs'
 
 const fullTabs = [
   { href: '/m', label: 'Home', match: (p: string) => p === '/m' },
-  { href: '/fields', label: 'Fields', match: (p: string) => p.startsWith('/fields') },
-  { href: '/jobs', label: 'Jobs', match: (p: string) => p.startsWith('/jobs') },
-  { href: '/m/account', label: 'Account', match: (p: string) => p.startsWith('/m/account') },
+  { href: '/m/animals', label: 'Animals', match: (p: string) => p.startsWith('/m/animals') || p.startsWith('/m/stock') },
+  { href: '/m/fields', label: 'Fields', match: (p: string) => p.startsWith('/m/fields') || p.startsWith('/fields') },
+  { href: '/m/jobs', label: 'Jobs', match: (p: string) => p.startsWith('/m/jobs') || p.startsWith('/jobs') },
 ]
 
 const yardTabs = [
@@ -24,10 +25,19 @@ export default function MobileLayout({ children }: { children: React.ReactNode }
   const [yard, setYard] = useState(false)
 
   useEffect(() => {
+    applyMobilePrefs()
     getFarmAccess().then((a) => setYard(isYardStaff(a.role)))
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(() => {})
+    }
   }, [])
 
-  const hideNav = pathname.startsWith('/m/feeding/run')
+  const hideNav =
+    pathname.startsWith('/m/feeding/run') ||
+    pathname.startsWith('/m/feeding/premix') ||
+    pathname.startsWith('/feeding/premix-run') ||
+    pathname.startsWith('/m/intake')
+
   const tabs = yard ? yardTabs : fullTabs
 
   return (
@@ -35,9 +45,7 @@ export default function MobileLayout({ children }: { children: React.ReactNode }
       <div className="mx-auto min-h-screen max-w-lg bg-slate-200 sm:border-x-2 sm:border-slate-400">
         <div className={hideNav ? 'pb-0' : 'pb-32'}>{children}</div>
         {!hideNav && (
-          <nav
-            className="fixed bottom-0 left-0 right-0 z-50 border-t-4 border-slate-700 bg-slate-900 phone-footer"
-          >
+          <nav className="fixed bottom-0 left-0 right-0 z-50 border-t-4 border-slate-700 bg-slate-900 phone-footer">
             <div className="mx-auto flex max-w-lg items-stretch justify-around px-1 pt-2">
               {tabs.map((t) => {
                 const active = t.match(pathname)
