@@ -57,6 +57,16 @@ export default function MobileFeedingHub() {
           </p>
         </Link>
 
+        <Link
+          href="/feeding/premix-run"
+          className="block min-h-[88px] rounded-2xl border-4 border-amber-800 bg-amber-600 p-5 text-white active:bg-amber-700"
+        >
+          <h2 className="text-xl font-bold">Premix</h2>
+          <p className="mt-1 text-base font-semibold text-amber-50">
+            Mix a batch → empty into bay
+          </p>
+        </Link>
+
         {advanced ? (
           <>
             <p className="pt-1 text-base font-bold text-slate-900">Setup and reports</p>
