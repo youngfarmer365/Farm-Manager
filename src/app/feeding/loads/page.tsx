@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 import { groupPensByShed, penLabel, type PenRow } from '@/lib/pens'
 import { programmeClockDay, programmeDayIndex } from '@/lib/feeding'
+import { LoadProgramEditor } from '@/components/feeding/LoadProgramEditor'
 
 interface Program {
   id: string
@@ -41,16 +42,15 @@ export default function LoadsPage() {
   const [programs, setPrograms] = useState<Program[]>([])
   const [pens, setPens] = useState<Pen[]>([])
   const [loads, setLoads] = useState<Load[]>([])
-
   const [name, setName] = useState('')
   const [programId, setProgramId] = useState('')
   const [error, setError] = useState<string | null>(null)
-
   const [activeLoad, setActiveLoad] = useState<Load | null>(null)
   const [loadPens, setLoadPens] = useState<LoadPen[]>([])
   const [selectedPenIds, setSelectedPenIds] = useState<Set<string>>(new Set())
   const [defaultKg, setDefaultKg] = useState('0')
-
+  const [editName, setEditName] = useState('')
+  const [editProgramId, setEditProgramId] = useState('')
   const supabase = createClient()
 
   async function loadMeta() {
@@ -66,7 +66,6 @@ export default function LoadsPage() {
       .maybeSingle()
     if (!membership) return
     setFarmId(membership.farm_id)
-
     const [{ data: progs }, { data: pensData }, { data: loadsData }] = await Promise.all([
       supabase
         .from('feeding_programs')
@@ -123,15 +122,37 @@ export default function LoadsPage() {
   async function startProgram(id: string) {
     const p = programs.find((x) => x.id === id)
     const extra = p?.paused_on ? Math.max(0, programmeDayIndex(p.paused_on)) : 0
+    let startDate = p?.start_date
+    if (startDate && extra > 0) {
+      const d = new Date(startDate + 'T00:00:00')
+      d.setDate(d.getDate() + extra)
+      startDate = d.toISOString().slice(0, 10)
+    }
     const { error } = await supabase
       .from('feeding_programs')
       .update({
         status: 'active',
         paused_on: null,
         pause_days: Number(p?.pause_days || 0) + extra,
+        ...(startDate ? { start_date: startDate } : {}),
       })
       .eq('id', id)
     if (error) setError(error.message + ' — run 009_program_pause.sql if columns are missing.')
+    await loadMeta()
+  }
+
+  async function saveLoadMeta() {
+    if (!activeLoad || !editName.trim()) return
+    setError(null)
+    const { error } = await supabase
+      .from('feed_loads')
+      .update({ name: editName.trim(), program_id: editProgramId || null })
+      .eq('id', activeLoad.id)
+    if (error) {
+      setError(error.message)
+      return
+    }
+    setActiveLoad({ ...activeLoad, name: editName.trim(), program_id: editProgramId || null })
     await loadMeta()
   }
 
@@ -147,30 +168,26 @@ export default function LoadsPage() {
 
   async function openLoad(load: Load) {
     setActiveLoad(load)
+    setEditName(load.name)
+    setEditProgramId(load.program_id || '')
     setSelectedPenIds(new Set())
     const { data: rows } = await supabase
       .from('feed_load_pens')
       .select('id, pen_id, daily_amount_kg, sort_order')
       .eq('load_id', load.id)
       .order('sort_order')
-
     const penIds = (rows || []).map((r) => r.pen_id)
     const { data: penRows } = penIds.length
       ? await supabase.from('pens').select('id, name, type, parent_id').in('id', penIds)
       : { data: [] }
     const parentIds = [
-      ...new Set(
-        ((penRows || []) as PenRow[]).map((p) => p.parent_id).filter((id): id is string => !!id)
-      ),
+      ...new Set(((penRows || []) as PenRow[]).map((p) => p.parent_id).filter((id): id is string => !!id)),
     ]
     const { data: shedRows } = parentIds.length
       ? await supabase.from('pens').select('id, name, type, parent_id').in('id', parentIds)
       : { data: [] }
-    const allPens = ([...(penRows || []), ...(shedRows || [])] as PenRow[])
-    const nameById = new Map(
-      ((penRows || []) as PenRow[]).map((p) => [p.id, penLabel(p, allPens)])
-    )
-
+    const allPens = [...(penRows || []), ...(shedRows || [])] as PenRow[]
+    const nameById = new Map(((penRows || []) as PenRow[]).map((p) => [p.id, penLabel(p, allPens)]))
     setLoadPens(
       (rows || []).map((r) => ({
         id: r.id,
@@ -194,9 +211,7 @@ export default function LoadsPage() {
   async function addSelectedPens() {
     if (!activeLoad || selectedPenIds.size === 0) return
     const kg = Number(defaultKg) || 0
-    let order =
-      loadPens.length === 0 ? 0 : Math.max(...loadPens.map((p) => p.sort_order)) + 1
-
+    let order = loadPens.length === 0 ? 0 : Math.max(...loadPens.map((p) => p.sort_order)) + 1
     for (const penId of selectedPenIds) {
       if (loadPens.some((lp) => lp.pen_id === penId)) continue
       await supabase.from('feed_load_pens').insert({
@@ -217,10 +232,7 @@ export default function LoadsPage() {
   }
 
   async function updateKg(id: string, kg: string) {
-    await supabase
-      .from('feed_load_pens')
-      .update({ daily_amount_kg: Number(kg) || 0 })
-      .eq('id', id)
+    await supabase.from('feed_load_pens').update({ daily_amount_kg: Number(kg) || 0 }).eq('id', id)
     if (activeLoad) await openLoad(activeLoad)
   }
 
@@ -239,17 +251,12 @@ export default function LoadsPage() {
   const allGroups = groupPensByShed(pens as PenRow[])
   const shedGroups = {
     grouped: allGroups.grouped
-      .map(({ shed, pens: inShed }) => ({
-        shed,
-        pens: inShed.filter((p) => !used.has(p.id)),
-      }))
+      .map(({ shed, pens: inShed }) => ({ shed, pens: inShed.filter((p) => !used.has(p.id)) }))
       .filter((g) => g.pens.length > 0),
     ungrouped: allGroups.ungrouped.filter((p) => !used.has(p.id)),
   }
-  const availablePens = [
-    ...shedGroups.grouped.flatMap((g) => g.pens),
-    ...shedGroups.ungrouped,
-  ]
+  const availablePens = [...shedGroups.grouped.flatMap((g) => g.pens), ...shedGroups.ungrouped]
+
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="bg-white border-b px-4 py-3">
@@ -260,7 +267,6 @@ export default function LoadsPage() {
           </Link>
         </div>
       </header>
-
       <main className="max-w-3xl mx-auto px-4 py-8 space-y-6">
         <form onSubmit={createLoad} className="bg-white rounded-xl border p-5 space-y-3 shadow-sm">
           <h2 className="font-semibold">New load</h2>
@@ -320,28 +326,16 @@ export default function LoadsPage() {
                 if (!prog) return null
                 const paused = prog.status === 'paused' || !!prog.paused_on
                 return paused ? (
-                  <button
-                    type="button"
-                    onClick={() => startProgram(prog.id)}
-                    className="text-xs font-semibold text-green-800 border border-green-300 rounded-md px-2 py-1"
-                  >
+                  <button type="button" onClick={() => startProgram(prog.id)} className="text-xs font-semibold text-green-800 border border-green-300 rounded-md px-2 py-1">
                     Start
                   </button>
                 ) : (
-                  <button
-                    type="button"
-                    onClick={() => pauseProgram(prog.id)}
-                    className="text-xs font-semibold text-amber-800 border border-amber-300 rounded-md px-2 py-1"
-                  >
+                  <button type="button" onClick={() => pauseProgram(prog.id)} className="text-xs font-semibold text-amber-800 border border-amber-300 rounded-md px-2 py-1">
                     Pause
                   </button>
                 )
               })()}
-              <button
-                type="button"
-                onClick={() => deleteLoad(l.id)}
-                className="text-xs text-red-600 border border-red-200 rounded-md px-2 py-1 mr-2"
-              >
+              <button type="button" onClick={() => deleteLoad(l.id)} className="text-xs text-red-600 border border-red-200 rounded-md px-2 py-1 mr-2">
                 Delete
               </button>
             </li>
@@ -350,62 +344,44 @@ export default function LoadsPage() {
 
         {activeLoad && (
           <section className="bg-white rounded-xl border p-5 shadow-sm space-y-4">
-            <h2 className="font-semibold">{activeLoad.name}</h2>
-
+            <LoadProgramEditor
+              name={editName}
+              programId={editProgramId}
+              programs={programs}
+              onName={setEditName}
+              onProgram={setEditProgramId}
+              onSave={saveLoadMeta}
+            />
             <div>
               <p className="text-sm font-medium mb-2">Add pens (from sheds)</p>
               <div className="flex items-center gap-2 mb-2">
                 <label className="text-xs text-slate-500">Default kg each</label>
-                <input
-                  type="number"
-                  value={defaultKg}
-                  onChange={(e) => setDefaultKg(e.target.value)}
-                  className="w-24 rounded-md border border-slate-300 px-2 py-1 text-sm"
-                />
+                <input type="number" value={defaultKg} onChange={(e) => setDefaultKg(e.target.value)} className="w-24 rounded-md border border-slate-300 px-2 py-1 text-sm" />
               </div>
               {availablePens.length === 0 ? (
                 <p className="text-sm text-slate-500">
                   No more pens available.{' '}
-                  <Link href="/pens" className="underline">
-                    Manage pens
-                  </Link>
+                  <Link href="/pens" className="underline">Manage pens</Link>
                 </p>
               ) : (
                 <ul className="border rounded-lg divide-y max-h-64 overflow-y-auto">
                   {shedGroups.grouped.map(({ shed, pens: inShed }) => (
                     <li key={shed.id}>
-                      <button
-                        type="button"
-                        className="w-full px-3 py-1.5 text-xs font-bold bg-slate-100 text-left"
-                        onClick={() => {
-                          setSelectedPenIds((prev) => {
-                            const next = new Set(prev)
-                            const ids = inShed.map((p) => p.id)
-                            const allOn = ids.every((id) => next.has(id))
-                            if (allOn) ids.forEach((id) => next.delete(id))
-                            else ids.forEach((id) => next.add(id))
-                            return next
-                          })
-                        }}
-                      >
+                      <button type="button" className="w-full px-3 py-1.5 text-xs font-bold bg-slate-100 text-left" onClick={() => {
+                        setSelectedPenIds((prev) => {
+                          const next = new Set(prev)
+                          const ids = inShed.map((p) => p.id)
+                          const allOn = ids.every((id) => next.has(id))
+                          if (allOn) ids.forEach((id) => next.delete(id))
+                          else ids.forEach((id) => next.add(id))
+                          return next
+                        })
+                      }}>
                         {shed.name} — tap to select all
                       </button>
                       {inShed.map((p) => (
-                        <button
-                          key={p.id}
-                          type="button"
-                          onClick={() => toggleSelect(p.id)}
-                          className={`w-full text-left px-3 py-2.5 text-sm flex items-center gap-2 ${
-                            selectedPenIds.has(p.id) ? 'bg-green-50' : 'hover:bg-slate-50'
-                          }`}
-                        >
-                          <span
-                            className={`h-4 w-4 rounded border flex items-center justify-center text-[10px] ${
-                              selectedPenIds.has(p.id)
-                                ? 'bg-green-600 border-green-600 text-white'
-                                : 'border-slate-300'
-                            }`}
-                          >
+                        <button key={p.id} type="button" onClick={() => toggleSelect(p.id)} className={`w-full text-left px-3 py-2.5 text-sm flex items-center gap-2 ${selectedPenIds.has(p.id) ? 'bg-green-50' : 'hover:bg-slate-50'}`}>
+                          <span className={`h-4 w-4 rounded border flex items-center justify-center text-[10px] ${selectedPenIds.has(p.id) ? 'bg-green-600 border-green-600 text-white' : 'border-slate-300'}`}>
                             {selectedPenIds.has(p.id) ? '✓' : ''}
                           </span>
                           {p.name}
@@ -415,20 +391,8 @@ export default function LoadsPage() {
                   ))}
                   {shedGroups.ungrouped.map((p) => (
                     <li key={p.id}>
-                      <button
-                        type="button"
-                        onClick={() => toggleSelect(p.id)}
-                        className={`w-full text-left px-3 py-2.5 text-sm flex items-center gap-2 ${
-                          selectedPenIds.has(p.id) ? 'bg-green-50' : 'hover:bg-slate-50'
-                        }`}
-                      >
-                        <span
-                          className={`h-4 w-4 rounded border flex items-center justify-center text-[10px] ${
-                            selectedPenIds.has(p.id)
-                              ? 'bg-green-600 border-green-600 text-white'
-                              : 'border-slate-300'
-                          }`}
-                        >
+                      <button type="button" onClick={() => toggleSelect(p.id)} className={`w-full text-left px-3 py-2.5 text-sm flex items-center gap-2 ${selectedPenIds.has(p.id) ? 'bg-green-50' : 'hover:bg-slate-50'}`}>
+                        <span className={`h-4 w-4 rounded border flex items-center justify-center text-[10px] ${selectedPenIds.has(p.id) ? 'bg-green-600 border-green-600 text-white' : 'border-slate-300'}`}>
                           {selectedPenIds.has(p.id) ? '✓' : ''}
                         </span>
                         {p.name}
@@ -437,45 +401,20 @@ export default function LoadsPage() {
                   ))}
                 </ul>
               )}
-              <button
-                type="button"
-                onClick={addSelectedPens}
-                disabled={selectedPenIds.size === 0}
-                className="mt-2 rounded-lg bg-slate-800 text-white px-4 py-2 text-sm disabled:opacity-40"
-              >
+              <button type="button" onClick={addSelectedPens} disabled={selectedPenIds.size === 0} className="mt-2 rounded-lg bg-slate-800 text-white px-4 py-2 text-sm disabled:opacity-40">
                 Add {selectedPenIds.size || ''} selected (in list order)
               </button>
             </div>
-
             <ol className="space-y-2">
               {loadPens.map((lp, idx) => (
-                <li
-                  key={lp.id}
-                  className="flex flex-wrap items-center gap-2 text-sm border rounded-lg px-3 py-2"
-                >
+                <li key={lp.id} className="flex flex-wrap items-center gap-2 text-sm border rounded-lg px-3 py-2">
                   <span className="text-slate-400 w-6">{idx + 1}.</span>
                   <span className="font-medium flex-1">{lp.pen_name}</span>
-                  <input
-                    type="number"
-                    step="0.1"
-                    defaultValue={lp.daily_amount_kg}
-                    onBlur={(e) => updateKg(lp.id, e.target.value)}
-                    className="w-24 rounded-md border border-slate-300 px-2 py-1"
-                  />
+                  <input type="number" step="0.1" defaultValue={lp.daily_amount_kg} onBlur={(e) => updateKg(lp.id, e.target.value)} className="w-24 rounded-md border border-slate-300 px-2 py-1" />
                   <span className="text-xs text-slate-500">kg</span>
-                  <button type="button" className="text-xs" onClick={() => movePen(idx, -1)}>
-                    ↑
-                  </button>
-                  <button type="button" className="text-xs" onClick={() => movePen(idx, 1)}>
-                    ↓
-                  </button>
-                  <button
-                    type="button"
-                    className="text-xs text-red-600 border border-red-200 rounded px-2 py-0.5"
-                    onClick={() => removeLoadPen(lp.id)}
-                  >
-                    Remove
-                  </button>
+                  <button type="button" className="text-xs" onClick={() => movePen(idx, -1)}>↑</button>
+                  <button type="button" className="text-xs" onClick={() => movePen(idx, 1)}>↓</button>
+                  <button type="button" className="text-xs text-red-600 border border-red-200 rounded px-2 py-0.5" onClick={() => removeLoadPen(lp.id)}>Remove</button>
                 </li>
               ))}
             </ol>
