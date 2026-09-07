@@ -4,12 +4,14 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { canRunFeeding, getFarmAccess } from '@/lib/farm-access'
 import FeedingRunPage from '@/app/feeding/run/page'
+import { saveRunDraft } from '@/lib/run-draft'
 
 export default function MobileFeedingRunPage() {
   const [ok, setOk] = useState<boolean | null>(null)
 
   useEffect(() => {
     getFarmAccess().then((a) => setOk(canRunFeeding(a.role)))
+    saveRunDraft('Feeding run opened on this phone', { path: '/m/feeding/run' })
   }, [])
 
   if (ok === null) {
