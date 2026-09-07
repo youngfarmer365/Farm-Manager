@@ -1,5 +1,6 @@
 -- Grazing: animals <-> fields with a full move history.
--- Run in the Supabase SQL editor after 005/006.
+-- Safe to re-run. Drops animals_enriched first because CREATE OR REPLACE
+-- cannot rename/reorder view columns (e.g. pen_short vs field_id).
 
 alter table public.farm_fields add column if not exists graze_days integer default 14;
 alter table public.farm_fields add column if not exists rest_days integer default 21;
@@ -30,10 +31,13 @@ create policy members_all on public.grazing_stays for all
   using (farm_id in (select public.user_farm_ids()))
   with check (farm_id in (select public.user_farm_ids()));
 
-create or replace view public.animals_enriched as
+drop view if exists public.animals_enriched;
+
+create view public.animals_enriched as
 select
   a.*,
   p.name as pen_name,
+  left(coalesce(p.name, ''), 12) as pen_short,
   f.name as field_name,
   g.name as group_name,
   g.type as group_type,
