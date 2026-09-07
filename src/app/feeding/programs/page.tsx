@@ -27,7 +27,6 @@ export default function ProgramsPage() {
   const [programs, setPrograms] = useState<Program[]>([])
   const [diets, setDiets] = useState<Diet[]>([])
   const [farmId, setFarmId] = useState<string | null>(null)
-
   const [name, setName] = useState('')
   const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10))
   const [phases, setPhases] = useState<PhaseRow[]>([
@@ -37,7 +36,8 @@ export default function ProgramsPage() {
   const [error, setError] = useState<string | null>(null)
   const [openId, setOpenId] = useState<string | null>(null)
   const [openPhases, setOpenPhases] = useState<any[]>([])
-
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
   const supabase = createClient()
 
   async function load() {
@@ -76,64 +76,114 @@ export default function ProgramsPage() {
     load()
   }, [])
 
-  async function createProgram(e: React.FormEvent) {
+  function resetForm() {
+    setEditingId(null)
+    setName('')
+    setStartDate(new Date().toISOString().slice(0, 10))
+    setPhases([
+      { diet_id: '', steady_days: '14', transition_days: '7' },
+      { diet_id: '', steady_days: '999', transition_days: '0' },
+    ])
+    setError(null)
+  }
+
+  async function startEdit(p: Program) {
+    setEditingId(p.id)
+    setName(p.name)
+    setStartDate(p.start_date)
+    setOpenId(p.id)
+    const { data } = await supabase
+      .from('program_phases')
+      .select('sort_order, steady_days, transition_days, diet_id, diets(name)')
+      .eq('program_id', p.id)
+      .order('sort_order')
+    setOpenPhases(data || [])
+    const next = (data || []).map((ph: any) => ({
+      diet_id: ph.diet_id,
+      steady_days: String(ph.steady_days ?? 0),
+      transition_days: String(ph.transition_days ?? 0),
+    }))
+    setPhases(next.length ? next : [{ diet_id: '', steady_days: '14', transition_days: '0' }])
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  async function saveProgram(e: React.FormEvent) {
     e.preventDefault()
     if (!farmId) return
     setError(null)
-
     const valid = phases.filter((ph) => ph.diet_id)
     if (valid.length < 1) {
       setError('Add at least one phase with a diet')
       return
     }
-
-    const { data: prog, error: pErr } = await supabase
-      .from('feeding_programs')
-      .insert({
-        farm_id: farmId,
-        name: name.trim() || 'Feeding programme',
-        start_date: startDate,
-        status: 'active',
-        starter_days: Number(valid[0].steady_days) || 0,
-        transition_days: Number(valid[0].transition_days) || 0,
-        starter_diet_id: valid[0].diet_id,
-        finisher_diet_id: valid[valid.length - 1].diet_id,
-      })
-      .select('id')
-      .single()
-
-    if (pErr || !prog) {
-      setError(pErr?.message || 'Failed')
-      return
+    const header = {
+      name: name.trim() || 'Feeding programme',
+      start_date: startDate,
+      starter_days: Number(valid[0].steady_days) || 0,
+      transition_days: Number(valid[0].transition_days) || 0,
+      starter_diet_id: valid[0].diet_id,
+      finisher_diet_id: valid[valid.length - 1].diet_id,
     }
-
     const phaseRows = valid.map((ph, idx) => ({
-      program_id: prog.id,
       sort_order: idx,
       diet_id: ph.diet_id,
       steady_days: Number(ph.steady_days) || 0,
       transition_days: idx === valid.length - 1 ? 0 : Number(ph.transition_days) || 0,
     }))
-
-    const { error: phErr } = await supabase.from('program_phases').insert(phaseRows)
+    setBusy(true)
+    if (editingId) {
+      const { error: uErr } = await supabase.from('feeding_programs').update(header).eq('id', editingId)
+      if (uErr) {
+        setBusy(false)
+        setError(uErr.message)
+        return
+      }
+      await supabase.from('program_phases').delete().eq('program_id', editingId)
+      const { error: phErr } = await supabase.from('program_phases').insert(
+        phaseRows.map((r) => ({ ...r, program_id: editingId }))
+      )
+      setBusy(false)
+      if (phErr) {
+        setError(phErr.message)
+        return
+      }
+      resetForm()
+      await load()
+      return
+    }
+    const { data: prog, error: pErr } = await supabase
+      .from('feeding_programs')
+      .insert({
+        farm_id: farmId,
+        status: 'active',
+        ...header,
+      })
+      .select('id')
+      .single()
+    if (pErr || !prog) {
+      setBusy(false)
+      setError(pErr?.message || 'Failed')
+      return
+    }
+    const { error: phErr } = await supabase.from('program_phases').insert(
+      phaseRows.map((r) => ({ ...r, program_id: prog.id }))
+    )
+    setBusy(false)
     if (phErr) setError(phErr.message)
     else {
-      setName('')
-      setPhases([
-        { diet_id: '', steady_days: '14', transition_days: '7' },
-        { diet_id: '', steady_days: '999', transition_days: '0' },
-      ])
+      resetForm()
       await load()
     }
   }
 
   async function deleteProgram(id: string) {
-    if (!confirm('Delete this programme and its phases?')) return
+    if (!confirm('Delete this programme? Completed loads keep what they used that day.')) return
     await supabase.from('feeding_programs').delete().eq('id', id)
     if (openId === id) {
       setOpenId(null)
       setOpenPhases([])
     }
+    if (editingId === id) resetForm()
     await load()
   }
 
@@ -149,8 +199,8 @@ export default function ProgramsPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <header className="bg-white border-b px-4 py-3">
-        <div className="max-w-3xl mx-auto flex justify-between">
+      <header className="border-b bg-white px-4 py-3">
+        <div className="mx-auto flex max-w-3xl justify-between">
           <h1 className="text-xl font-bold">Feeding programmes</h1>
           <Link href="/feeding" className="text-sm text-slate-600 hover:underline">
             Feeding
@@ -158,14 +208,13 @@ export default function ProgramsPage() {
         </div>
       </header>
 
-      <main className="max-w-3xl mx-auto px-4 py-8 space-y-6">
+      <main className="mx-auto max-w-3xl space-y-6 px-4 py-8">
         <p className="text-sm text-slate-600">
-          Add phases in order. Each phase has days at 100% that diet, then optional transition into
-          the next.
+          Edit changes the programme for the next run. Old loads stay as saved.
         </p>
 
-        <form onSubmit={createProgram} className="bg-white rounded-xl border p-5 space-y-4 shadow-sm">
-          <h2 className="font-semibold">New programme</h2>
+        <form onSubmit={saveProgram} className="space-y-4 rounded-xl border bg-white p-5 shadow-sm">
+          <h2 className="font-semibold">{editingId ? 'Edit programme' : 'New programme'}</h2>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -173,7 +222,7 @@ export default function ProgramsPage() {
             className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
           />
           <div>
-            <label className="block text-xs mb-1">Start date</label>
+            <label className="mb-1 block text-xs">Start date</label>
             <input
               type="date"
               value={startDate}
@@ -185,7 +234,7 @@ export default function ProgramsPage() {
           <div className="space-y-3">
             <h3 className="text-sm font-medium">Phases (in order)</h3>
             {phases.map((ph, idx) => (
-              <div key={idx} className="rounded-lg border border-slate-200 p-3 space-y-2 bg-slate-50">
+              <div key={idx} className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
                 <div className="text-xs font-medium text-slate-500">Phase {idx + 1}</div>
                 <select
                   value={ph.diet_id}
@@ -219,9 +268,7 @@ export default function ProgramsPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] text-slate-500">
-                      Transition days → next
-                    </label>
+                    <label className="block text-[10px] text-slate-500">Transition days → next</label>
                     <input
                       type="number"
                       min="0"
@@ -249,39 +296,53 @@ export default function ProgramsPage() {
             ))}
             <button
               type="button"
-              onClick={() =>
-                setPhases([...phases, { diet_id: '', steady_days: '14', transition_days: '0' }])
-              }
-              className="text-xs text-brand-700 font-medium"
+              onClick={() => setPhases([...phases, { diet_id: '', steady_days: '14', transition_days: '0' }])}
+              className="text-xs font-medium text-brand-700"
             >
               + Add phase / transition
             </button>
           </div>
 
           {error && <p className="text-sm text-red-600">{error}</p>}
-          <button type="submit" className="rounded-lg bg-brand-600 text-white px-4 py-2 text-sm">
-            Create programme
-          </button>
+          <div className="flex gap-2">
+            <button type="submit" disabled={busy} className="rounded-lg bg-brand-600 px-4 py-2 text-sm text-white disabled:opacity-50">
+              {editingId ? 'Save changes' : 'Create programme'}
+            </button>
+            {editingId && (
+              <button type="button" onClick={resetForm} className="rounded-lg border px-4 py-2 text-sm">
+                Cancel
+              </button>
+            )}
+          </div>
         </form>
 
-        <ul className="bg-white rounded-xl border divide-y shadow-sm">
+        <ul className="divide-y rounded-xl border bg-white shadow-sm">
           {programs.map((p) => (
             <li key={p.id} className="px-4 py-3 text-sm">
               <div className="flex items-start justify-between gap-3">
-                <button type="button" onClick={() => viewPhases(p.id)} className="text-left flex-1">
+                <button type="button" onClick={() => viewPhases(p.id)} className="flex-1 text-left">
                   <span className="font-medium">{p.name}</span>
-                  <span className="text-slate-500 ml-2 text-xs">from {p.start_date}</span>
+                  <span className="ml-2 text-xs text-slate-500">from {p.start_date}</span>
                 </button>
-                <button
-                  type="button"
-                  onClick={() => deleteProgram(p.id)}
-                  className="text-xs text-red-600 border border-red-200 rounded-md px-2 py-1 hover:bg-red-50 shrink-0"
-                >
-                  Delete
-                </button>
+                <div className="flex shrink-0 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => startEdit(p)}
+                    className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => deleteProgram(p.id)}
+                    className="rounded-md border border-red-200 px-2 py-1 text-xs text-red-600"
+                  >
+                    Delete
+                  </button>
+                </div>
               </div>
               {openId === p.id && (
-                <ol className="mt-2 text-xs text-slate-600 space-y-1 list-decimal list-inside">
+                <ol className="mt-2 list-inside list-decimal space-y-1 text-xs text-slate-600">
                   {openPhases.map((ph: any, i: number) => (
                     <li key={i}>
                       {ph.diets?.name || ph.diet_id}: {ph.steady_days}d steady
