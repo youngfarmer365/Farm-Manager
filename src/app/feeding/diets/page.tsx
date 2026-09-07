@@ -31,6 +31,8 @@ export default function DietsPage() {
   const [error, setError] = useState<string | null>(null)
   const [selectedDiet, setSelectedDiet] = useState<string | null>(null)
   const [dietLines, setDietLines] = useState<any[]>([])
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
   const supabase = createClient()
 
   async function load() {
@@ -70,6 +72,14 @@ export default function DietsPage() {
     load()
   }, [])
 
+  function resetForm() {
+    setEditingId(null)
+    setName('')
+    setDietType('starter')
+    setLines([{ ingredient_id: '', percent: '' }])
+    setError(null)
+  }
+
   async function openDiet(id: string) {
     setSelectedDiet(id)
     const { data } = await supabase
@@ -80,24 +90,79 @@ export default function DietsPage() {
     setDietLines(data || [])
   }
 
+  async function startEdit(d: Diet) {
+    setEditingId(d.id)
+    setName(d.name)
+    setDietType(d.diet_type || 'other')
+    setSelectedDiet(d.id)
+    const { data } = await supabase
+      .from('diet_ingredients')
+      .select('percent, sort_order, ingredient_id, ingredients(name)')
+      .eq('diet_id', d.id)
+      .order('sort_order')
+    setDietLines(data || [])
+    const next =
+      (data || []).map((l: any) => ({
+        ingredient_id: l.ingredient_id,
+        percent: String(l.percent),
+      })) || []
+    setLines(next.length ? next : [{ ingredient_id: '', percent: '' }])
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
   async function deleteDiet(id: string) {
-    if (!confirm('Remove this diet?')) return
+    if (!confirm('Remove this diet? Completed loads keep the mix they used that day.')) return
     await supabase.from('diets').update({ is_active: false }).eq('id', id)
     if (selectedDiet === id) {
       setSelectedDiet(null)
       setDietLines([])
     }
+    if (editingId === id) resetForm()
     await load()
   }
 
-  async function createDiet(e: React.FormEvent) {
+  async function saveDiet(e: React.FormEvent) {
     e.preventDefault()
     if (!farmId || !name.trim()) return
     setError(null)
-
     const total = lines.reduce((s, l) => s + (Number(l.percent) || 0), 0)
     if (Math.abs(total - 100) > 0.5) {
       setError(`Percentages should total ~100 (currently ${total.toFixed(1)})`)
+      return
+    }
+    const rows = lines
+      .filter((l) => l.ingredient_id && Number(l.percent) > 0)
+      .map((l, idx) => ({
+        ingredient_id: l.ingredient_id,
+        percent: Number(l.percent),
+        sort_order: idx,
+      }))
+    if (!rows.length) {
+      setError('Add at least one ingredient')
+      return
+    }
+    setBusy(true)
+    if (editingId) {
+      const { error: uErr } = await supabase
+        .from('diets')
+        .update({ name: name.trim(), diet_type: dietType })
+        .eq('id', editingId)
+      if (uErr) {
+        setBusy(false)
+        setError(uErr.message)
+        return
+      }
+      await supabase.from('diet_ingredients').delete().eq('diet_id', editingId)
+      const { error: lErr } = await supabase.from('diet_ingredients').insert(
+        rows.map((r) => ({ ...r, diet_id: editingId }))
+      )
+      setBusy(false)
+      if (lErr) {
+        setError(lErr.message)
+        return
+      }
+      resetForm()
+      await load()
       return
     }
 
@@ -110,34 +175,26 @@ export default function DietsPage() {
       })
       .select('id')
       .single()
-
     if (dErr || !diet) {
+      setBusy(false)
       setError(dErr?.message || 'Failed')
       return
     }
-
-    const rows = lines
-      .filter((l) => l.ingredient_id && Number(l.percent) > 0)
-      .map((l, idx) => ({
-        diet_id: diet.id,
-        ingredient_id: l.ingredient_id,
-        percent: Number(l.percent),
-        sort_order: idx,
-      }))
-
-    const { error: lErr } = await supabase.from('diet_ingredients').insert(rows)
+    const { error: lErr } = await supabase.from('diet_ingredients').insert(
+      rows.map((r) => ({ ...r, diet_id: diet.id }))
+    )
+    setBusy(false)
     if (lErr) setError(lErr.message)
     else {
-      setName('')
-      setLines([{ ingredient_id: '', percent: '' }])
+      resetForm()
       await load()
     }
   }
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <header className="bg-white border-b px-4 py-3">
-        <div className="max-w-2xl mx-auto flex justify-between">
+      <header className="border-b bg-white px-4 py-3">
+        <div className="mx-auto flex max-w-2xl justify-between">
           <h1 className="text-xl font-bold">Diets</h1>
           <Link href="/feeding" className="text-sm text-slate-600 hover:underline">
             Feeding
@@ -145,31 +202,24 @@ export default function DietsPage() {
         </div>
       </header>
 
-      <main className="max-w-2xl mx-auto px-4 py-8 space-y-6">
-        {/* Nested setup: ingredients & premixes under diets */}
+      <main className="mx-auto max-w-2xl space-y-6 px-4 py-8">
         <div className="grid grid-cols-2 gap-3">
-          <Link
-            href="/feeding/ingredients"
-            className="rounded-xl border bg-white p-4 text-center shadow-sm hover:border-slate-400"
-          >
-            <div className="font-semibold text-sm">Ingredients</div>
-            <div className="text-xs text-slate-500 mt-1">Names & €/kg</div>
+          <Link href="/feeding/ingredients" className="rounded-xl border bg-white p-4 text-center shadow-sm">
+            <div className="text-sm font-semibold">Ingredients</div>
+            <div className="mt-1 text-xs text-slate-500">Names & €/kg</div>
           </Link>
-          <Link
-            href="/feeding/premixes"
-            className="rounded-xl border bg-white p-4 text-center shadow-sm hover:border-slate-400"
-          >
-            <div className="font-semibold text-sm">Premixes</div>
-            <div className="text-xs text-slate-500 mt-1">Batch recipes</div>
+          <Link href="/feeding/premixes" className="rounded-xl border bg-white p-4 text-center shadow-sm">
+            <div className="text-sm font-semibold">Premixes</div>
+            <div className="mt-1 text-xs text-slate-500">Batch recipes</div>
           </Link>
         </div>
 
         <p className="text-sm text-slate-600">
-          Build diets from ingredients/premixes. Line order = feeder fill order.
+          Edit changes the diet for the next run. Completed loads keep the mix they used that day.
         </p>
 
-        <form onSubmit={createDiet} className="bg-white rounded-xl border p-5 space-y-3 shadow-sm">
-          <h2 className="font-semibold">New diet</h2>
+        <form onSubmit={saveDiet} className="space-y-3 rounded-xl border bg-white p-5 shadow-sm">
+          <h2 className="font-semibold">{editingId ? 'Edit diet' : 'New diet'}</h2>
           <input
             required
             value={name}
@@ -188,8 +238,8 @@ export default function DietsPage() {
           </select>
 
           {lines.map((line, idx) => (
-            <div key={idx} className="flex gap-2 items-center">
-              <span className="text-xs text-slate-400 w-5">{idx + 1}.</span>
+            <div key={idx} className="flex items-center gap-2">
+              <span className="w-5 text-xs text-slate-400">{idx + 1}.</span>
               <select
                 value={line.ingredient_id}
                 onChange={(e) => {
@@ -219,6 +269,15 @@ export default function DietsPage() {
                 }}
                 className="w-24 rounded-md border border-slate-300 px-3 py-2 text-sm"
               />
+              {lines.length > 1 && (
+                <button
+                  type="button"
+                  className="text-xs text-red-600"
+                  onClick={() => setLines(lines.filter((_, i) => i !== idx))}
+                >
+                  x
+                </button>
+              )}
             </div>
           ))}
           <button
@@ -229,29 +288,45 @@ export default function DietsPage() {
             + ingredient line
           </button>
           {error && <p className="text-sm text-red-600">{error}</p>}
-          <button type="submit" className="rounded-lg bg-brand-600 text-white px-4 py-2 text-sm">
-            Save diet
-          </button>
+          <div className="flex gap-2">
+            <button type="submit" disabled={busy} className="rounded-lg bg-brand-600 px-4 py-2 text-sm text-white disabled:opacity-50">
+              {editingId ? 'Save changes' : 'Save diet'}
+            </button>
+            {editingId && (
+              <button type="button" onClick={resetForm} className="rounded-lg border px-4 py-2 text-sm">
+                Cancel
+              </button>
+            )}
+          </div>
         </form>
 
-        <ul className="bg-white rounded-xl border divide-y shadow-sm">
+        <ul className="divide-y rounded-xl border bg-white shadow-sm">
           {diets.map((d) => (
             <li key={d.id} className="px-4 py-3 text-sm">
               <div className="flex items-start justify-between gap-2">
-                <button type="button" onClick={() => openDiet(d.id)} className="text-left flex-1">
+                <button type="button" onClick={() => openDiet(d.id)} className="flex-1 text-left">
                   <span className="font-medium">{d.name}</span>
-                  <span className="text-slate-500 ml-2 capitalize">{d.diet_type}</span>
+                  <span className="ml-2 capitalize text-slate-500">{d.diet_type}</span>
                 </button>
-                <button
-                  type="button"
-                  onClick={() => deleteDiet(d.id)}
-                  className="text-xs text-red-600 border border-red-200 rounded-md px-2 py-1"
-                >
-                  Delete
-                </button>
+                <div className="flex shrink-0 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => startEdit(d)}
+                    className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => deleteDiet(d.id)}
+                    className="rounded-md border border-red-200 px-2 py-1 text-xs text-red-600"
+                  >
+                    Delete
+                  </button>
+                </div>
               </div>
               {selectedDiet === d.id && (
-                <ol className="mt-2 text-xs text-slate-600 space-y-0.5 list-decimal list-inside">
+                <ol className="mt-2 list-inside list-decimal space-y-0.5 text-xs text-slate-600">
                   {dietLines.map((l: any, i: number) => (
                     <li key={i}>
                       {l.ingredients?.name || l.ingredient_id}: {l.percent}%
