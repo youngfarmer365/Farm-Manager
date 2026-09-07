@@ -65,6 +65,16 @@ export default function FeedingHubPage() {
         <section className="space-y-3">
           <h2 className={sectionLabel}>Setup</h2>
 
+          <Link href="/feeding/ingredients" className={card}>
+            <h3 className={cardTitle}>Ingredients</h3>
+            <p className={cardSub}>Add, edit, delete and set €/kg</p>
+          </Link>
+
+          <Link href="/feeding/prices" className={card}>
+            <h3 className={cardTitle}>Price history</h3>
+            <p className={cardSub}>How €/kg has changed over time</p>
+          </Link>
+
           <Link href="/feeding/diets" className={card}>
             <h3 className={cardTitle}>Diets</h3>
             <p className={cardSub}>Diets, ingredients and premixes</p>
