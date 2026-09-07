@@ -4,10 +4,15 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 import { groupPensByShed, penLabel, type PenRow } from '@/lib/pens'
+import { programmeClockDay, programmeDayIndex } from '@/lib/feeding'
 
 interface Program {
   id: string
   name: string
+  start_date?: string
+  status?: string | null
+  pause_days?: number | null
+  paused_on?: string | null
 }
 
 interface Pen {
@@ -65,7 +70,7 @@ export default function LoadsPage() {
     const [{ data: progs }, { data: pensData }, { data: loadsData }] = await Promise.all([
       supabase
         .from('feeding_programs')
-        .select('id, name')
+        .select('id, name, start_date, status, pause_days, paused_on')
         .eq('farm_id', membership.farm_id)
         .order('created_at', { ascending: false }),
       supabase
@@ -103,6 +108,31 @@ export default function LoadsPage() {
       setName('')
       await loadMeta()
     }
+  }
+
+  async function pauseProgram(id: string) {
+    const today = new Date().toISOString().slice(0, 10)
+    const { error } = await supabase
+      .from('feeding_programs')
+      .update({ status: 'paused', paused_on: today })
+      .eq('id', id)
+    if (error) setError(error.message + ' — run 009_program_pause.sql if columns are missing.')
+    await loadMeta()
+  }
+
+  async function startProgram(id: string) {
+    const p = programs.find((x) => x.id === id)
+    const extra = p?.paused_on ? Math.max(0, programmeDayIndex(p.paused_on)) : 0
+    const { error } = await supabase
+      .from('feeding_programs')
+      .update({
+        status: 'active',
+        paused_on: null,
+        pause_days: Number(p?.pause_days || 0) + extra,
+      })
+      .eq('id', id)
+    if (error) setError(error.message + ' — run 009_program_pause.sql if columns are missing.')
+    await loadMeta()
   }
 
   async function deleteLoad(id: string) {
@@ -268,7 +298,45 @@ export default function LoadsPage() {
                 className="flex-1 text-left px-2 py-3 text-sm hover:bg-slate-50 rounded-lg"
               >
                 <span className="font-medium">{l.name}</span>
+                {(() => {
+                  const prog = programs.find((p) => p.id === l.program_id)
+                  if (!prog) return <span className="ml-2 text-xs text-slate-400">No programme</span>
+                  const paused = prog.status === 'paused' || !!prog.paused_on
+                  const day = programmeClockDay({
+                    start_date: prog.start_date || new Date().toISOString().slice(0, 10),
+                    pause_days: prog.pause_days,
+                    paused_on: prog.paused_on,
+                  })
+                  return (
+                    <span className="ml-2 text-xs font-semibold text-slate-600">
+                      · {prog.name}
+                      {paused ? ' · paused' : ` · day ${day}`}
+                    </span>
+                  )
+                })()}
               </button>
+              {(() => {
+                const prog = programs.find((p) => p.id === l.program_id)
+                if (!prog) return null
+                const paused = prog.status === 'paused' || !!prog.paused_on
+                return paused ? (
+                  <button
+                    type="button"
+                    onClick={() => startProgram(prog.id)}
+                    className="text-xs font-semibold text-green-800 border border-green-300 rounded-md px-2 py-1"
+                  >
+                    Start
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => pauseProgram(prog.id)}
+                    className="text-xs font-semibold text-amber-800 border border-amber-300 rounded-md px-2 py-1"
+                  >
+                    Pause
+                  </button>
+                )
+              })()}
               <button
                 type="button"
                 onClick={() => deleteLoad(l.id)}
@@ -303,7 +371,7 @@ export default function LoadsPage() {
                   </Link>
                 </p>
               ) : (
-                                <ul className="border rounded-lg divide-y max-h-64 overflow-y-auto">
+                <ul className="border rounded-lg divide-y max-h-64 overflow-y-auto">
                   {shedGroups.grouped.map(({ shed, pens: inShed }) => (
                     <li key={shed.id}>
                       <button
