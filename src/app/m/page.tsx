@@ -69,6 +69,10 @@ export default function MobileHomePage() {
           <span className="text-2xl font-bold">Feeding run</span>
           <span className="mt-1 font-semibold text-brand-50">Start today’s load</span>
         </Link>
+        <Link href="/feeding/premix-run" className={tile + ' border-amber-800 bg-amber-600 text-white'}>
+          <span className="text-2xl font-bold">Premix</span>
+          <span className="mt-1 font-semibold text-amber-50">Mix a batch into the bay</span>
+        </Link>
         <Link href="/m/stock" className={tile + ' border-slate-600 bg-white'}>
           <span className="text-2xl font-bold">Stock check</span>
           <span className="mt-1 font-semibold text-slate-700">Head count by pen and field</span>
