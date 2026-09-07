@@ -6,6 +6,21 @@ export function programmeDayIndex(startDate: string, asOf: Date = new Date()): n
   return Math.floor((today.getTime() - start.getTime()) / 86400000)
 }
 
+export type ProgrammeClock = {
+  start_date: string
+  status?: string | null
+  pause_days?: number | null
+  paused_on?: string | null
+}
+
+/** Calendar days on the programme, with paused days taken out. */
+export function programmeClockDay(prog: ProgrammeClock, asOf: Date = new Date()): number {
+  const raw = programmeDayIndex(prog.start_date, asOf)
+  const stored = Number(prog.pause_days || 0)
+  const extra = prog.paused_on ? Math.max(0, programmeDayIndex(prog.paused_on, asOf)) : 0
+  return Math.max(0, raw - stored - extra)
+}
+
 export type Phase = {
   sort_order: number
   diet_id: string
@@ -38,7 +53,6 @@ export function resolvePhaseBlend(
     const phase = sorted[i]
     const next = sorted[i + 1]
 
-    // Steady segment
     if (dayIndex < cursor + phase.steady_days) {
       return {
         fromDietId: phase.diet_id,
@@ -50,10 +64,9 @@ export function resolvePhaseBlend(
     }
     cursor += phase.steady_days
 
-    // Transition into next
     if (next && phase.transition_days > 0) {
       if (dayIndex < cursor + phase.transition_days) {
-        const t = dayIndex - cursor // 0 .. transition_days-1
+        const t = dayIndex - cursor
         const toShare = (t + 1) / phase.transition_days
         return {
           fromDietId: phase.diet_id,
@@ -91,7 +104,6 @@ export function blendIngredientPercents(
   fromShare: number,
   toShare: number
 ): IngredientPercent[] {
-  // Preserve order: from-diet order first, then any extras from to-diet
   const map = new Map<string, IngredientPercent>()
   const order: string[] = []
 
