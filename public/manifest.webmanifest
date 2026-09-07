@@ -1,8 +1,8 @@
 {
   "name": "Farm Manager",
   "short_name": "Farm",
-  "description": "Feeding runs and stock checks for the yard",
-  "start_url": "/m",
+  "description": "Farm operations — animals, feeding, fields and jobs",
+  "start_url": "/home",
   "scope": "/",
   "display": "standalone",
   "background_color": "#166534",

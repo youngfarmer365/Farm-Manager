@@ -31,8 +31,10 @@ export function hideFeedPrices(role: FarmRole | null | undefined) {
   return isYardStaff(role)
 }
 
-export function homePathForRole(role: FarmRole | null | undefined) {
-  return isYardStaff(role) ? '/m' : '/home'
+export function homePathForRole(role: FarmRole | null | undefined, phone?: boolean) {
+  if (isYardStaff(role)) return '/m'
+  if (phone) return '/m'
+  return '/home'
 }
 
 export function isYardAllowedPath(pathname: string) {
