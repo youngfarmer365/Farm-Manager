@@ -43,6 +43,16 @@ export default function FeedingHubPage() {
             </p>
           </Link>
 
+          <Link
+            href="/feeding/premix-run"
+            className="block min-h-[88px] rounded-xl border-4 border-amber-800 bg-amber-600 p-5 text-white hover:bg-amber-700"
+          >
+            <h3 className="text-xl font-bold">Premix</h3>
+            <p className="mt-1 text-base font-semibold text-amber-50">
+              Mix a batch → empty into bay → stock updates
+            </p>
+          </Link>
+
           <Link href="/feeding/pen-dashboard" className={card}>
             <h3 className={cardTitle}>Pen dashboard</h3>
             <p className={cardSub}>
