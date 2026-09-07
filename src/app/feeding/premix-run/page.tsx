@@ -38,21 +38,28 @@ export default function PremixRunPage() {
     const access = await getFarmAccess()
     if (!access.farmId) return
     setFarmId(access.farmId)
-    const [{ data: diets }, { data: ings }] = await Promise.all([
-      supabase
+    let dietsRes = await supabase
+      .from('diets')
+      .select('id, name, batch_kg')
+      .eq('farm_id', access.farmId)
+      .eq('diet_type', 'premix')
+      .eq('is_active', true)
+      .order('name')
+    if (dietsRes.error) {
+      dietsRes = await supabase
         .from('diets')
-        .select('id, name, batch_kg')
+        .select('id, name')
         .eq('farm_id', access.farmId)
         .eq('diet_type', 'premix')
         .eq('is_active', true)
-        .order('name'),
-      supabase
-        .from('ingredients')
-        .select('id, name, premix_diet_id')
-        .eq('farm_id', access.farmId)
-        .eq('is_active', true),
-    ])
-    const list: Premix[] = (diets || []).map((d: any) => {
+        .order('name')
+    }
+    const { data: ings } = await supabase
+      .from('ingredients')
+      .select('id, name, premix_diet_id')
+      .eq('farm_id', access.farmId)
+      .eq('is_active', true)
+    const list: Premix[] = (dietsRes.data || []).map((d: any) => {
       const asIng = (ings || []).find((i: any) => i.premix_diet_id === d.id)
       const stored =
         typeof window !== 'undefined' ? window.localStorage.getItem('fm_premix_batch_' + d.id) : null
