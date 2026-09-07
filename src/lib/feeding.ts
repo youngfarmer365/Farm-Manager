@@ -28,11 +28,6 @@ export type Phase = {
   transition_days: number
 }
 
-/**
- * Multi-phase timeline:
- * For each phase: steady_days at 100% that diet, then transition_days
- * blending linearly into the next phase's diet.
- */
 export function resolvePhaseBlend(
   dayIndex: number,
   phases: Phase[]
