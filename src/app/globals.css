@@ -12,7 +12,6 @@
   --muted: #64748b;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
-  /* Extra gap so buttons sit clear of notch / Dynamic Island / home bar */
   --phone-top: calc(var(--safe-top) + 12px);
   --phone-bottom: calc(var(--safe-bottom) + 14px);
 }
@@ -26,6 +25,25 @@ body {
 
 html {
   -webkit-text-size-adjust: 100%;
+}
+
+html.fm-large {
+  font-size: 18px;
+}
+
+html.fm-contrast {
+  --background: #ffffff;
+  --foreground: #000000;
+}
+
+html.fm-contrast body {
+  background: #ffffff;
+  color: #000000;
+}
+
+html.fm-contrast a,
+html.fm-contrast button {
+  font-weight: 800;
 }
 
 input,
@@ -51,8 +69,6 @@ label {
   padding-bottom: var(--phone-bottom);
 }
 
-/* Leaflet adds .leaflet-container onto the SAME div we size inline.
-   Never set height: 100% here — that collapses the map to a 8px border line. */
 .leaflet-container {
   width: 100%;
   font-family: inherit;
@@ -75,13 +91,11 @@ label {
   z-index: 10;
 }
 
-/* Subtle focus for keyboard / scanner users */
 :focus-visible {
   outline: 2px solid var(--brand);
   outline-offset: 2px;
 }
 
-/* ---------- Print: animals list ---------- */
 @media print {
   @page {
     size: A4 landscape;
@@ -97,75 +111,9 @@ label {
 
   header,
   aside,
-  .print\:hidden,
+  .print\\:hidden,
   button,
   nav {
     display: none !important;
-  }
-
-  main {
-    max-width: none !important;
-    padding: 0 !important;
-    margin: 0 !important;
-  }
-
-  table {
-    width: 100% !important;
-    border-collapse: collapse !important;
-    font-size: 9pt !important;
-  }
-
-  thead {
-    display: table-header-group;
-  }
-
-  tfoot {
-    display: table-footer-group;
-  }
-
-  th,
-  td {
-    border: 0.5pt solid #ccc !important;
-    padding: 3px 5px !important;
-    color: black !important;
-  }
-
-  th {
-    background: #f0f0f0 !important;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
-  }
-
-  tfoot td {
-    background: #f7f7f7 !important;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
-    font-weight: 600;
-  }
-
-  tr {
-    page-break-inside: avoid;
-  }
-
-  a {
-    color: black !important;
-    text-decoration: none !important;
-  }
-
-  span[style] {
-    border: 0.5pt solid #999;
-    padding: 1px 4px;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
-  }
-
-  tbody tr:nth-child(even) td {
-    background: #f3f3f3 !important;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
-  }
-
-  tbody tr:nth-child(odd) td {
-    background: white !important;
   }
 }
