@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { getFarmAccess } from '@/lib/farm-access'
-import { groupPensByShed, type PenRow } from '@/lib/pens'
+import { groupPensByShed, penLabel, type PenRow } from '@/lib/pens'
 import { MobileMoveBar } from '@/components/animals/MobileMoveBar'
 
 interface Row {
@@ -91,6 +91,12 @@ export default function MobileAnimalsPage() {
     }
     load()
   }, [])
+
+  function placeLabel(a: Row) {
+    const pen = a.pen_id ? pens.find((p) => p.id === a.pen_id) : null
+    if (pen) return penLabel(pen, pens)
+    return a.pen_name || 'No pen'
+  }
 
   const sheds = groupPensByShed(pens)
   const filtered = useMemo(() => {
@@ -184,7 +190,10 @@ export default function MobileAnimalsPage() {
                   </button>
                   <Link href={'/m/animals/' + a.id} className={'block min-h-[72px] flex-1 rounded-xl border-2 px-4 py-3 ' + (wd ? 'border-amber-700 bg-amber-100' : a.is_flagged ? 'border-red-600 bg-red-50' : 'border-slate-400 bg-white')}>
                     <div className="font-mono text-xl font-bold">{shortTag(a.tag)}</div>
-                    <div className="text-sm font-semibold text-slate-700">{a.pen_name || 'No pen'}{wd ? ' · W/D ' + wd + 'd' : ''}</div>
+                    <div className="text-sm font-semibold text-slate-700">
+                      {placeLabel(a)}
+                      {wd ? ' · W/D ' + wd + 'd' : ''}
+                    </div>
                   </Link>
                 </li>
               )
