@@ -30,7 +30,9 @@ export default function HomeHubPage() {
         router.push('/onboarding')
         return
       }
-      if (isYardStaff(a.role) || isPhoneDevice()) {
+      const stay =
+        typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('stay') === '1'
+      if (!stay && (isYardStaff(a.role) || isPhoneDevice())) {
         router.replace(homePathForRole(a.role, true))
         return
       }
