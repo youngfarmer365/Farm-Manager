@@ -94,10 +94,12 @@ function parseMartXml(xmlText: string): {
 }
 
 const LAST_HERD_KEY = 'farm-manager-last-herd'
+const LAST_SOURCE_KEY = 'farm-manager-last-mart-source'
 
 export default function MartImportPage() {
   const [animals, setAnimals] = useState<ParsedAnimal[]>([])
   const [sourceName, setSourceName] = useState('')
+  const [sourceFromFile, setSourceFromFile] = useState('')
   const [herdFromFile, setHerdFromFile] = useState<string | null>(null)
   const [groups, setGroups] = useState<Group[]>([])
   const [pens, setPens] = useState<Pen[]>([])
@@ -178,6 +180,7 @@ export default function MartImportPage() {
     try {
       const text = await file.text()
       const parsed = parseMartXml(text)
+      setSourceFromFile(parsed.sourceName)
       setSourceName(parsed.sourceName)
       setHerdFromFile(parsed.herdFromFile)
 
@@ -220,12 +223,19 @@ export default function MartImportPage() {
     setResult(null)
     setError(null)
 
+    const source = sourceName.trim() || 'Mart'
+
     if (herdId) {
       try {
         localStorage.setItem(LAST_HERD_KEY, herdId)
       } catch {
         // ignore
       }
+    }
+    try {
+      localStorage.setItem(LAST_SOURCE_KEY, source)
+    } catch {
+      // ignore
     }
 
     let ok = 0
@@ -237,7 +247,6 @@ export default function MartImportPage() {
 
     for (const a of selected) {
       if (a.isDuplicate && a.existingId) {
-        // Enrich intake / existing animal with mart details (only fill blanks where useful)
         const { data: current } = await supabase
           .from('animals')
           .select('*')
@@ -250,13 +259,12 @@ export default function MartImportPage() {
         }
 
         const patch: Record<string, any> = {
-          source: sourceName || current.source,
+          source,
         }
         if (a.dob) patch.date_of_birth = a.dob
         if (a.breed) patch.breed = a.breed
         if (a.sex && a.sex !== 'unknown') patch.sex = a.sex
         if (a.eventDate) {
-          // Prefer mart event date as purchase/entry if still intake placeholder
           if (!current.purchase_date || current.source === 'EID intake') {
             patch.purchase_date = a.eventDate
             patch.entry_date = a.eventDate
@@ -279,7 +287,6 @@ export default function MartImportPage() {
         if (error) {
           failed++
         } else {
-          // Record purchase weight as a weight row if provided
           if (a.weight != null && a.eventDate) {
             await supabase.from('weights').delete().eq('animal_id', a.existingId).eq('weighed_at', a.eventDate)
             await supabase.from('weights').insert({
@@ -315,7 +322,7 @@ export default function MartImportPage() {
           herd_id: herdId || null,
           group_id: groupId || null,
           pen_id: penId || null,
-          source: sourceName,
+          source,
           status: 'active',
         })
         .select('id')
@@ -369,15 +376,9 @@ export default function MartImportPage() {
             onChange={handleFile}
             className="block w-full text-sm"
           />
-          {sourceName && (
+          {herdFromFile && (
             <p className="text-sm text-slate-600">
-              Source: <strong>{sourceName}</strong>
-              {herdFromFile && (
-                <>
-                  {' '}
-                  · Herd in file: <strong>{herdFromFile}</strong>
-                </>
-              )}
+              Herd in file: <strong>{herdFromFile}</strong>
             </p>
           )}
           {error && <p className="text-sm text-red-600">{error}</p>}
@@ -385,7 +386,36 @@ export default function MartImportPage() {
 
         {animals.length > 0 && (
           <>
-            <div className="bg-white rounded-xl border p-4 shadow-sm grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="bg-white rounded-xl border p-4 shadow-sm space-y-3">
+              <div>
+                <label className="block text-sm font-medium mb-1">Source</label>
+                <input
+                  value={sourceName}
+                  onChange={(e) => setSourceName(e.target.value)}
+                  placeholder="Mart or seller name"
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                />
+                {sourceFromFile ? (
+                  <p className="mt-1 text-xs text-slate-500">
+                    File said: <strong>{sourceFromFile}</strong>
+                    {sourceFromFile !== sourceName ? (
+                      <>
+                        {' · '}
+                        <button
+                          type="button"
+                          onClick={() => setSourceName(sourceFromFile)}
+                          className="underline"
+                        >
+                          Use file value
+                        </button>
+                      </>
+                    ) : (
+                      ' — edit if this is wrong'
+                    )}
+                  </p>
+                ) : null}
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
                 <label className="block text-sm font-medium mb-1">Herd</label>
                 <select
@@ -439,6 +469,7 @@ export default function MartImportPage() {
                     </option>
                   ))}
                 </select>
+              </div>
               </div>
             </div>
 
