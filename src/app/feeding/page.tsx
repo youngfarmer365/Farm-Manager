@@ -92,7 +92,7 @@ export default function FeedingHubPage() {
 
           <Link href="/feeding/programs" className={card}>
             <h3 className={cardTitle}>Programmes</h3>
-            <p className={cardSub}>Phases and transitions</p>
+            <p className={cardSub}>Phases — clock starts on a load</p>
           </Link>
 
           <Link href="/feeding/loads" className={card}>
