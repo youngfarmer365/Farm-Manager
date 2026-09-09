@@ -20,6 +20,32 @@ export type ProgrammeClock = {
   paused_on?: string | null
 }
 
+export type LoadProgrammeClock = {
+  program_start_date?: string | null
+  program_pause_days?: number | null
+  program_paused_on?: string | null
+  program_status?: string | null
+}
+
+/** Prefer this load's own clock. Fall back to the shared programme only if the load has none yet. */
+export function clockFromLoad(
+  load: LoadProgrammeClock | null | undefined,
+  fallback?: ProgrammeClock | null
+): ProgrammeClock {
+  if (
+    load &&
+    (load.program_start_date || load.program_paused_on || Number(load.program_pause_days || 0) > 0)
+  ) {
+    return {
+      start_date: load.program_start_date,
+      pause_days: load.program_pause_days,
+      paused_on: load.program_paused_on,
+      status: load.program_status,
+    }
+  }
+  return fallback || { start_date: null }
+}
+
 /** Calendar days on the programme, with paused days taken out. Day 0 is the start date. */
 export function programmeClockDay(prog: ProgrammeClock, asOf: Date = new Date()): number {
   if (!prog.start_date) return 0
@@ -83,7 +109,7 @@ export function resolvePhaseBlend(
           toDietId: next.diet_id,
           fromShare: 1 - toShare,
           toShare,
-          label: `Transition ${i + 1}→${i + 2}`,
+          label: `Transition ${i + 1}\u2192${i + 2}`,
         }
       }
       cursor += phase.transition_days

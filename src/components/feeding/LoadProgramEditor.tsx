@@ -3,16 +3,20 @@
 export function LoadProgramEditor({
   name,
   programId,
+  startDate,
   programs,
   onName,
   onProgram,
+  onStartDate,
   onSave,
 }: {
   name: string
   programId: string
-  programs: { id: string; name: string; status?: string | null; paused_on?: string | null }[]
+  startDate: string
+  programs: { id: string; name: string }[]
   onName: (v: string) => void
   onProgram: (v: string) => void
+  onStartDate: (v: string) => void
   onSave: () => void
 }) {
   return (
@@ -34,10 +38,26 @@ export function LoadProgramEditor({
         {programs.map((p) => (
           <option key={p.id} value={p.id}>
             {p.name}
-            {p.status === 'paused' || p.paused_on ? ' (paused)' : ''}
           </option>
         ))}
       </select>
+      {programId ? (
+        <>
+          <label className="block text-xs font-semibold text-slate-600">
+            Started on (this load only)
+          </label>
+          <input
+            type="date"
+            value={startDate}
+            onChange={(e) => onStartDate(e.target.value)}
+            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+          />
+          <p className="text-xs text-slate-500">
+            The same programme can sit on other loads with a different start date. Pause on this
+            row only stops this load.
+          </p>
+        </>
+      ) : null}
       <button
         type="button"
         onClick={onSave}
