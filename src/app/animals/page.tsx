@@ -359,7 +359,7 @@ export default function AnimalsPage() {
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="border-b border-slate-200 bg-white px-4 py-3 print:hidden">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3">
+        <div className="flex w-full flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-wider text-brand-700">
               Farm Manager
@@ -392,9 +392,9 @@ export default function AnimalsPage() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-7xl px-4 py-6">
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-4">
-          <aside className="print:hidden lg:col-span-1 lg:order-1 order-2">
+      <main className="w-full px-4 py-6 lg:px-6">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(240px,280px)_minmax(0,1fr)]">
+          <aside className="print:hidden lg:order-1 order-2">
             <AnimalFiltersPanel
               groups={groups}
               pens={pens}
@@ -404,7 +404,7 @@ export default function AnimalsPage() {
             />
           </aside>
 
-          <section className="space-y-3 lg:col-span-3 lg:order-2 order-1">
+          <section className="min-w-0 space-y-3 lg:order-2 order-1">
             <div className="rounded-xl border-2 border-slate-300 bg-white p-3 print:hidden">
               <p className="mb-2 text-sm font-bold text-slate-900">Shed and pen</p>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
