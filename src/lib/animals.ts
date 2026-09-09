@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import type { AnimalEnriched, AnimalFilters, AnimalSort } from '@/types/database'
+import { dobOnOrBeforeMonthsAgo } from '@/lib/age'
 
 export async function getAnimals(
   farmId: string,
@@ -47,12 +48,22 @@ export async function getAnimals(
     query = query.lte('days_on_farm', filters.max_days_on_farm)
   }
 
-  // Age
+  // Age (days, if set) and completed calendar months from date of birth
   if (filters.min_age_days != null) {
     query = query.gte('age_days', filters.min_age_days)
   }
   if (filters.max_age_days != null) {
     query = query.lte('age_days', filters.max_age_days)
+  }
+  if (filters.min_age_months != null) {
+    query = query
+      .not('date_of_birth', 'is', null)
+      .lte('date_of_birth', dobOnOrBeforeMonthsAgo(Number(filters.min_age_months)))
+  }
+  if (filters.max_age_months != null) {
+    query = query
+      .not('date_of_birth', 'is', null)
+      .gt('date_of_birth', dobOnOrBeforeMonthsAgo(Number(filters.max_age_months) + 1))
   }
 
   // Purchase date range

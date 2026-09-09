@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import type { AnimalEnriched, AnimalSort, AnimalSortField } from '@/types/database'
 import { formatWeight, formatADG, formatDate, formatCurrency } from '@/lib/utils'
+import { exactAge } from '@/lib/age'
 
 interface Props {
   animals: AnimalEnriched[]
@@ -77,10 +78,8 @@ function shortTag(tag: string) {
 }
 
 function ageMonthsFromAnimal(a: AnimalEnriched): number | null {
-  const anyA = a as any
-  if (anyA.age_months != null && !Number.isNaN(Number(anyA.age_months))) {
-    return Number(anyA.age_months)
-  }
+  const calendar = exactAge(a.date_of_birth)
+  if (calendar) return calendar.months
   if (a.age_days != null) return Math.floor(Number(a.age_days) / 30.4375)
   return null
 }

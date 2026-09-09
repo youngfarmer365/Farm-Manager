@@ -307,6 +307,9 @@ export function AnimalFiltersPanel({
       {/* Age */}
       <div className={section}>
         <p className={sectionTitle}>Age (months)</p>
+        <p className="text-xs font-semibold text-slate-600">
+          Completed months from date of birth. 12–18 keeps animals that are 12 months up to the day before they turn 19.
+        </p>
         <div className="grid grid-cols-2 gap-2">
           <div>
             <label className={label}>Min</label>
@@ -318,7 +321,7 @@ export function AnimalFiltersPanel({
               onChange={(e) =>
                 update(
                   'min_age_months',
-                  e.target.value ? Number(e.target.value) : undefined
+                  e.target.value === '' ? undefined : Number(e.target.value)
                 )
               }
             />
@@ -333,7 +336,7 @@ export function AnimalFiltersPanel({
               onChange={(e) =>
                 update(
                   'max_age_months',
-                  e.target.value ? Number(e.target.value) : undefined
+                  e.target.value === '' ? undefined : Number(e.target.value)
                 )
               }
             />

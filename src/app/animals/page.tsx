@@ -14,6 +14,7 @@ import type {
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 import { groupPensByShed, housingPens, isShed, penLabel } from '@/lib/pens'
+import { ageMonthsInRange, dobOnOrBeforeMonthsAgo } from '@/lib/age'
 
 interface Herd {
   id: string
@@ -112,6 +113,16 @@ export default function AnimalsPage() {
     if (filters.max_days_on_farm != null) query = query.lte('days_on_farm', filters.max_days_on_farm)
     if (filters.min_age_days != null) query = query.gte('age_days', filters.min_age_days)
     if (filters.max_age_days != null) query = query.lte('age_days', filters.max_age_days)
+    if (filters.min_age_months != null) {
+      query = query
+        .not('date_of_birth', 'is', null)
+        .lte('date_of_birth', dobOnOrBeforeMonthsAgo(Number(filters.min_age_months)))
+    }
+    if (filters.max_age_months != null) {
+      query = query
+        .not('date_of_birth', 'is', null)
+        .gt('date_of_birth', dobOnOrBeforeMonthsAgo(Number(filters.max_age_months) + 1))
+    }
     if (filters.purchase_date_from) query = query.gte('purchase_date', filters.purchase_date_from)
     if (filters.purchase_date_to) query = query.lte('purchase_date', filters.purchase_date_to)
     if (filters.exit_date_from) query = query.gte('exit_date', filters.exit_date_from)
@@ -157,6 +168,11 @@ export default function AnimalsPage() {
         const cmp = key(a.tag).localeCompare(key(b.tag), undefined, { numeric: true })
         return sort.direction === 'asc' ? cmp : -cmp
       })
+    }
+    if (filters.min_age_months != null || filters.max_age_months != null) {
+      list = list.filter((a) =>
+        ageMonthsInRange(a.date_of_birth, filters.min_age_months, filters.max_age_months)
+      )
     }
     setAnimals(list)
     setCount(c || 0)

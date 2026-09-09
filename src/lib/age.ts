@@ -35,9 +35,31 @@ export function exactAge(
   }
 }
 
+function localISODate(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
 /** Cut-off DOB: animals born on or before this date are at least `months` months old. */
 export function dobOnOrBeforeMonthsAgo(months: number, asOf: Date = new Date()): string {
   const d = new Date(asOf.getFullYear(), asOf.getMonth(), asOf.getDate())
   d.setMonth(d.getMonth() - months)
-  return d.toISOString().slice(0, 10)
+  return localISODate(d)
+}
+
+/** Keep rows whose completed calendar age is inside min/max months (inclusive). */
+export function ageMonthsInRange(
+  dateOfBirth: string | null | undefined,
+  minMonths?: number | null,
+  maxMonths?: number | null,
+  asOf: Date = new Date()
+): boolean {
+  if (minMonths == null && maxMonths == null) return true
+  const age = exactAge(dateOfBirth, asOf)
+  if (!age) return false
+  if (minMonths != null && age.months < minMonths) return false
+  if (maxMonths != null && age.months > maxMonths) return false
+  return true
 }
