@@ -1,3 +1,10 @@
+export function localISODate(asOf: Date = new Date()): string {
+  const y = asOf.getFullYear()
+  const m = String(asOf.getMonth() + 1).padStart(2, '0')
+  const day = String(asOf.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
 export function programmeDayIndex(startDate: string, asOf: Date = new Date()): number {
   const start = new Date(startDate + 'T00:00:00')
   const today = new Date(asOf)
@@ -7,7 +14,7 @@ export function programmeDayIndex(startDate: string, asOf: Date = new Date()): n
 }
 
 export type ProgrammeClock = {
-  start_date: string
+  start_date?: string | null
   status?: string | null
   pause_days?: number | null
   paused_on?: string | null
@@ -15,6 +22,7 @@ export type ProgrammeClock = {
 
 /** Calendar days on the programme, with paused days taken out. Day 0 is the start date. */
 export function programmeClockDay(prog: ProgrammeClock, asOf: Date = new Date()): number {
+  if (!prog.start_date) return 0
   const raw = programmeDayIndex(prog.start_date, asOf)
   const stored = Number(prog.pause_days || 0)
   const extra = prog.paused_on ? Math.max(0, programmeDayIndex(prog.paused_on, asOf)) : 0
