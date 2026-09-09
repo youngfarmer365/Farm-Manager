@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 import {
-  programmeDayIndex,
+  programmeClockDay,
   resolvePhaseBlend,
   blendIngredientPercents,
   mixFromTotalKg,
@@ -284,7 +284,7 @@ export default function FeedingRunPage() {
 
     const { data: prog } = await supabase
       .from('feeding_programs')
-      .select('start_date')
+      .select('start_date, pause_days, paused_on, status')
       .eq('id', currentLoad.program_id)
       .single()
 
@@ -301,10 +301,11 @@ export default function FeedingRunPage() {
       return
     }
 
-    const day = programmeDayIndex(prog.start_date)
+    const day = programmeClockDay(prog)
     const blend = resolvePhaseBlend(day, phaseRows as Phase[])
+    const paused = prog.status === 'paused' || !!prog.paused_on
     setPhaseLabel(
-      `Day ${day} · ${blend.label} · ${(blend.fromShare * 100).toFixed(0)}% / ${(blend.toShare * 100).toFixed(0)}%`
+      `Day ${day}${paused ? ' (paused)' : ''} · ${blend.label} · ${(blend.fromShare * 100).toFixed(0)}% / ${(blend.toShare * 100).toFixed(0)}%`
     )
 
     const fromDiet = blend.fromDietId ? await loadDietPercents(blend.fromDietId) : []
@@ -458,7 +459,7 @@ export default function FeedingRunPage() {
     if (load.program_id && fillTotal > 0) {
       const { data: prog } = await supabase
         .from('feeding_programs')
-        .select('start_date')
+        .select('start_date, pause_days, paused_on, status')
         .eq('id', load.program_id)
         .single()
       const { data: phaseRows } = await supabase
@@ -467,7 +468,7 @@ export default function FeedingRunPage() {
         .eq('program_id', load.program_id)
         .order('sort_order')
       if (prog && phaseRows?.length) {
-        const day = programmeDayIndex(prog.start_date)
+        const day = programmeClockDay(prog)
         const blend = resolvePhaseBlend(day, phaseRows as Phase[])
         const fromDiet = blend.fromDietId ? await loadDietPercents(blend.fromDietId) : []
         const toDiet =

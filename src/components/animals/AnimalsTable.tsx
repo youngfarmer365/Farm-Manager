@@ -48,7 +48,7 @@ interface ColumnDef {
 }
 
 const ALL_COLUMNS: ColumnDef[] = [
-  { id: 'short_tag', label: 'Short tag', defaultVisible: true, footer: 'none' },
+  { id: 'short_tag', label: 'Short tag', sortField: 'short_tag', defaultVisible: true, footer: 'none' },
   { id: 'tag', label: 'Full tag', sortField: 'tag', defaultVisible: false, footer: 'none' },
   { id: 'group_name', label: 'Group', sortField: 'group_name', defaultVisible: true, footer: 'none' },
   { id: 'shed_name', label: 'Shed', defaultVisible: true, footer: 'none' },

@@ -122,19 +122,12 @@ export default function LoadsPage() {
   async function startProgram(id: string) {
     const p = programs.find((x) => x.id === id)
     const extra = p?.paused_on ? Math.max(0, programmeDayIndex(p.paused_on)) : 0
-    let startDate = p?.start_date
-    if (startDate && extra > 0) {
-      const d = new Date(startDate + 'T00:00:00')
-      d.setDate(d.getDate() + extra)
-      startDate = d.toISOString().slice(0, 10)
-    }
     const { error } = await supabase
       .from('feeding_programs')
       .update({
         status: 'active',
         paused_on: null,
         pause_days: Number(p?.pause_days || 0) + extra,
-        ...(startDate ? { start_date: startDate } : {}),
       })
       .eq('id', id)
     if (error) setError(error.message + ' — run 009_program_pause.sql if columns are missing.')

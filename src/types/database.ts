@@ -157,6 +157,7 @@ export interface AnimalFilters {
 }
 
 export type AnimalSortField =
+  | 'short_tag'
   | 'tag'
   | 'purchase_date'
   | 'entry_date'

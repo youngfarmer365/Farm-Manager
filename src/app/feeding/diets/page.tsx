@@ -80,6 +80,16 @@ export default function DietsPage() {
     setError(null)
   }
 
+  function moveLine(idx: number, dir: -1 | 1) {
+    const j = idx + dir
+    if (j < 0 || j >= lines.length) return
+    const next = [...lines]
+    const tmp = next[idx]
+    next[idx] = next[j]
+    next[j] = tmp
+    setLines(next)
+  }
+
   async function openDiet(id: string) {
     setSelectedDiet(id)
     const { data } = await supabase
@@ -215,7 +225,9 @@ export default function DietsPage() {
         </div>
 
         <p className="text-sm text-slate-600">
-          Edit changes the diet for the next run. Completed loads keep the mix they used that day.
+          Line order is the mixer fill order. Use ↑ ↓ so straw, starter, maize, silage
+          stay in that sequence on the feeding run. Edit changes the diet for the next
+          run. Completed loads keep the mix they used that day.
         </p>
 
         <form onSubmit={saveDiet} className="space-y-3 rounded-xl border bg-white p-5 shadow-sm">
@@ -269,6 +281,17 @@ export default function DietsPage() {
                 }}
                 className="w-24 rounded-md border border-slate-300 px-3 py-2 text-sm"
               />
+              <button type="button" className="text-xs" onClick={() => moveLine(idx, -1)} disabled={idx === 0}>
+                ↑
+              </button>
+              <button
+                type="button"
+                className="text-xs"
+                onClick={() => moveLine(idx, 1)}
+                disabled={idx === lines.length - 1}
+              >
+                ↓
+              </button>
               {lines.length > 1 && (
                 <button
                   type="button"

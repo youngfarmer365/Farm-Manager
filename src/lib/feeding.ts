@@ -13,7 +13,7 @@ export type ProgrammeClock = {
   paused_on?: string | null
 }
 
-/** Calendar days on the programme, with paused days taken out. */
+/** Calendar days on the programme, with paused days taken out. Day 0 is the start date. */
 export function programmeClockDay(prog: ProgrammeClock, asOf: Date = new Date()): number {
   const raw = programmeDayIndex(prog.start_date, asOf)
   const stored = Number(prog.pause_days || 0)
@@ -28,6 +28,13 @@ export type Phase = {
   transition_days: number
 }
 
+/**
+ * Walk the phase list from day 0:
+ *   each phase is `steady_days` at 100% that diet,
+ *   then `transition_days` blending linearly into the next diet.
+ * Transition day t (0-based) uses toShare = (t + 1) / transition_days,
+ * so day 1 of a 7-day change is 1/7 new, and the last transition day is 100% new.
+ */
 export function resolvePhaseBlend(
   dayIndex: number,
   phases: Phase[]
@@ -102,8 +109,10 @@ function sortedLines(rows: IngredientPercent[]) {
 }
 
 /**
- * Mixer order follows the current (from) diet line order, then any extra
- * ingredients that only exist on the next diet. Percents are a weighted blend.
+ * Mixer fill order follows the diet with more ingredient lines (the full
+ * wagon sequence). During a same-size transition it follows the diet you
+ * are heading toward. Extra ingredients from the other diet are appended.
+ * Percents are a weighted blend of the two diets.
  */
 export function blendIngredientPercents(
   fromDiet: IngredientPercent[],
@@ -116,11 +125,21 @@ export function blendIngredientPercents(
   const fromMap = new Map(fromSorted.map((r) => [r.ingredientId, r]))
   const toMap = new Map(toSorted.map((r) => [r.ingredientId, r]))
 
+  const primary =
+    toSorted.length > fromSorted.length
+      ? toSorted
+      : fromSorted.length > toSorted.length
+        ? fromSorted
+        : toShare > 0
+          ? toSorted
+          : fromSorted
+  const secondary = primary === toSorted ? fromSorted : toSorted
+
   const order: string[] = []
-  for (const r of fromSorted) {
+  for (const r of primary) {
     if (!order.includes(r.ingredientId)) order.push(r.ingredientId)
   }
-  for (const r of toSorted) {
+  for (const r of secondary) {
     if (!order.includes(r.ingredientId)) order.push(r.ingredientId)
   }
 
@@ -133,22 +152,34 @@ export function blendIngredientPercents(
       return {
         ingredientId: id,
         name: src.name,
-        percent: Number(percent.toFixed(3)),
+        percent,
         costPerUnit: (toShare > fromShare && to ? to : src).costPerUnit,
         sortOrder: idx,
       }
     })
     .filter((r) => r.percent > 0.0005)
+    .map((r) => ({ ...r, percent: Number(r.percent.toFixed(3)) }))
 }
 
+/** Split total kg by percent. Remainder 0.01 kg goes on the largest line so the wagon adds up. */
 export function mixFromTotalKg(totalKg: number, blended: IngredientPercent[]) {
-  return blended.map((b) => {
-    const kg = (totalKg * b.percent) / 100
-    const cost = kg * (b.costPerUnit || 0)
-    return {
-      ...b,
-      kg: Number(kg.toFixed(2)),
-      cost: Number(cost.toFixed(2)),
-    }
+  const rows = blended.map((b) => {
+    const kg = Number(((totalKg * b.percent) / 100).toFixed(2))
+    return { ...b, kg }
   })
+  const kgSum = rows.reduce((s, r) => s + r.kg, 0)
+  const target = Number(Number(totalKg).toFixed(2))
+  const drift = Number((target - kgSum).toFixed(2))
+  if (rows.length && Math.abs(drift) >= 0.01) {
+    let i = 0
+    for (let j = 1; j < rows.length; j++) {
+      if (rows[j].kg > rows[i].kg) i = j
+    }
+    rows[i] = { ...rows[i], kg: Number((rows[i].kg + drift).toFixed(2)) }
+  }
+  return rows.map((r) => ({
+    ...r,
+    kg: r.kg,
+    cost: Number((r.kg * (r.costPerUnit || 0)).toFixed(2)),
+  }))
 }

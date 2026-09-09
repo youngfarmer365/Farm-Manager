@@ -29,7 +29,7 @@ export default function AnimalsPage() {
   const [pens, setPens] = useState<Pen[]>([])
   const [herds, setHerds] = useState<Herd[]>([])
   const [filters, setFilters] = useState<AnimalFilters>({})
-  const [sort, setSort] = useState<AnimalSort>({ field: 'tag', direction: 'asc' })
+  const [sort, setSort] = useState<AnimalSort>({ field: 'short_tag', direction: 'asc' })
   const [loading, setLoading] = useState(true)
   const [count, setCount] = useState(0)
   const [farmId, setFarmId] = useState<string | null>(null)
@@ -133,8 +133,9 @@ export default function AnimalsPage() {
       query = query.or(`tag.ilike.${term},eid.ilike.${term},breed.ilike.${term}`)
     }
 
-    query = query.order(sort.field, {
-      ascending: sort.direction === 'asc',
+    const dbField = sort.field === 'short_tag' ? 'tag' : sort.field
+    query = query.order(dbField, {
+      ascending: sort.field === 'short_tag' ? true : sort.direction === 'asc',
       nullsFirst: false,
     })
     query = query.range(0, 499)
@@ -142,11 +143,21 @@ export default function AnimalsPage() {
     const { data, count: c, error } = await query
     if (error) console.error(error)
 
-    const list = ((data as AnimalEnriched[]) || []).map((a) => {
+    let list = ((data as AnimalEnriched[]) || []).map((a) => {
       const pen = pens.find((p) => p.id === a.pen_id)
       const shed = pen?.parent_id ? pens.find((p) => p.id === pen.parent_id) : undefined
       return { ...a, shed_name: shed?.name || null }
     })
+    if (sort.field === 'short_tag') {
+      const key = (tag: string) => {
+        const t = (tag || '').replace(/\s/g, '')
+        return t.length <= 5 ? t : t.slice(-5)
+      }
+      list = [...list].sort((a, b) => {
+        const cmp = key(a.tag).localeCompare(key(b.tag), undefined, { numeric: true })
+        return sort.direction === 'asc' ? cmp : -cmp
+      })
+    }
     setAnimals(list)
     setCount(c || 0)
     setSelected(new Set())
