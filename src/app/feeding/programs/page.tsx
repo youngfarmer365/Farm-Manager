@@ -13,7 +13,7 @@ interface Diet {
 interface Program {
   id: string
   name: string
-  start_date: string
+  start_date: string | null
   status: string
 }
 
@@ -28,7 +28,7 @@ export default function ProgramsPage() {
   const [diets, setDiets] = useState<Diet[]>([])
   const [farmId, setFarmId] = useState<string | null>(null)
   const [name, setName] = useState('')
-  const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10))
+  const [startDate, setStartDate] = useState('')
   const [phases, setPhases] = useState<PhaseRow[]>([
     { diet_id: '', steady_days: '14', transition_days: '7' },
     { diet_id: '', steady_days: '999', transition_days: '0' },
@@ -79,7 +79,7 @@ export default function ProgramsPage() {
   function resetForm() {
     setEditingId(null)
     setName('')
-    setStartDate(new Date().toISOString().slice(0, 10))
+    setStartDate('')
     setPhases([
       { diet_id: '', steady_days: '14', transition_days: '7' },
       { diet_id: '', steady_days: '999', transition_days: '0' },
@@ -90,7 +90,7 @@ export default function ProgramsPage() {
   async function startEdit(p: Program) {
     setEditingId(p.id)
     setName(p.name)
-    setStartDate(p.start_date)
+    setStartDate(p.start_date || '')
     setOpenId(p.id)
     const { data } = await supabase
       .from('program_phases')
@@ -116,14 +116,15 @@ export default function ProgramsPage() {
       setError('Add at least one phase with a diet')
       return
     }
-    const header = {
+    const header: Record<string, unknown> = {
       name: name.trim() || 'Feeding programme',
-      start_date: startDate,
       starter_days: Number(valid[0].steady_days) || 0,
       transition_days: Number(valid[0].transition_days) || 0,
       starter_diet_id: valid[0].diet_id,
       finisher_diet_id: valid[valid.length - 1].diet_id,
     }
+    if (startDate) header.start_date = startDate
+    else if (!editingId) header.start_date = null
     const phaseRows = valid.map((ph, idx) => ({
       sort_order: idx,
       diet_id: ph.diet_id,
@@ -135,7 +136,11 @@ export default function ProgramsPage() {
       const { error: uErr } = await supabase.from('feeding_programs').update(header).eq('id', editingId)
       if (uErr) {
         setBusy(false)
-        setError(uErr.message)
+        setError(
+          uErr.message.includes('null')
+            ? uErr.message + ' — run 012_program_start_optional.sql in Supabase.'
+            : uErr.message
+        )
         return
       }
       await supabase.from('program_phases').delete().eq('program_id', editingId)
@@ -162,7 +167,13 @@ export default function ProgramsPage() {
       .single()
     if (pErr || !prog) {
       setBusy(false)
-      setError(pErr?.message || 'Failed')
+      setError(
+        pErr?.message
+          ? pErr.message.includes('null')
+            ? pErr.message + ' — run 012_program_start_optional.sql in Supabase.'
+            : pErr.message
+          : 'Failed'
+      )
       return
     }
     const { error: phErr } = await supabase.from('program_phases').insert(
@@ -210,7 +221,8 @@ export default function ProgramsPage() {
 
       <main className="mx-auto max-w-3xl space-y-6 px-4 py-8">
         <p className="text-sm text-slate-600">
-          Edit changes the programme for the next run. Old loads stay as saved.
+          Set the diets and days here. Leave the start date blank — the cycle begins the day you
+          put this programme on a load.
         </p>
 
         <form onSubmit={saveProgram} className="space-y-4 rounded-xl border bg-white p-5 shadow-sm">
@@ -222,13 +234,16 @@ export default function ProgramsPage() {
             className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
           />
           <div>
-            <label className="mb-1 block text-xs">Start date</label>
+            <label className="mb-1 block text-xs">Start date (optional)</label>
             <input
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
               className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
             />
+            <p className="mt-1 text-xs text-slate-500">
+              Leave blank to start the clock when this programme is added to a load.
+            </p>
           </div>
 
           <div className="space-y-3">
@@ -322,7 +337,9 @@ export default function ProgramsPage() {
               <div className="flex items-start justify-between gap-3">
                 <button type="button" onClick={() => viewPhases(p.id)} className="flex-1 text-left">
                   <span className="font-medium">{p.name}</span>
-                  <span className="ml-2 text-xs text-slate-500">from {p.start_date}</span>
+                  <span className="ml-2 text-xs text-slate-500">
+                    {p.start_date ? `from ${p.start_date}` : 'starts when added to a load'}
+                  </span>
                 </button>
                 <div className="flex shrink-0 gap-2">
                   <button
