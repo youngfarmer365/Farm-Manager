@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
+import { adjustStock } from '@/lib/feed-stock'
 
 interface Row {
   ingredient_id: string
@@ -18,7 +19,12 @@ export default function StockPage() {
   const [ingredients, setIngredients] = useState<{ id: string; name: string }[]>([])
   const [ingId, setIngId] = useState('')
   const [qty, setQty] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const supabase = createClient()
+
+  const currentKg = rows.find((r) => r.ingredient_id === ingId)?.quantity_kg ?? 0
+  const addKg = Number(qty) || 0
 
   async function load() {
     const {
@@ -47,7 +53,6 @@ export default function StockPage() {
       .select('ingredient_id, quantity_kg')
       .eq('farm_id', membership.farm_id)
 
-    // Average daily use from last 14 days of completed runs
     const since = new Date()
     since.setDate(since.getDate() - 14)
     const { data: runs } = await supabase
@@ -91,18 +96,42 @@ export default function StockPage() {
     load()
   }, [])
 
-  async function setStock(e: React.FormEvent) {
+  async function addLoad(e: React.FormEvent) {
     e.preventDefault()
+    if (!farmId || !ingId || addKg === 0) return
+    setBusy(true)
+    setError(null)
+    const { error: err } = await adjustStock(farmId, ingId, addKg)
+    setBusy(false)
+    if (err) {
+      setError(err)
+      return
+    }
+    setQty('')
+    await load()
+  }
+
+  async function setExact() {
     if (!farmId || !ingId) return
-    await supabase.from('feed_stock').upsert(
+    const next = Number(qty)
+    if (Number.isNaN(next)) return
+    if (!confirm('Replace on-hand with ' + next + ' kg? This does not add to current stock.')) return
+    setBusy(true)
+    setError(null)
+    const { error } = await supabase.from('feed_stock').upsert(
       {
         farm_id: farmId,
         ingredient_id: ingId,
-        quantity_kg: Number(qty) || 0,
+        quantity_kg: Math.max(0, next),
         updated_at: new Date().toISOString(),
       },
       { onConflict: 'farm_id,ingredient_id' }
     )
+    setBusy(false)
+    if (error) {
+      setError(error.message)
+      return
+    }
     setQty('')
     await load()
   }
@@ -119,11 +148,11 @@ export default function StockPage() {
       </header>
       <main className="max-w-3xl mx-auto px-4 py-8 space-y-6">
         <p className="text-sm text-slate-600">
-          Set on-hand kg. Each completed load deducts ingredient use. Days left uses average use from
-          recent completed loads.
+          Add a new load onto what is already there. Completed feed runs still deduct use. Days left
+          uses average use from recent completed loads.
         </p>
 
-        <form onSubmit={setStock} className="bg-white rounded-xl border p-4 flex flex-wrap gap-2 items-end shadow-sm">
+        <form onSubmit={addLoad} className="bg-white rounded-xl border p-4 flex flex-wrap gap-2 items-end shadow-sm">
           <div className="flex-1 min-w-[10rem]">
             <label className="block text-xs mb-1">Ingredient</label>
             <select
@@ -141,7 +170,7 @@ export default function StockPage() {
             </select>
           </div>
           <div>
-            <label className="block text-xs mb-1">On hand (kg)</label>
+            <label className="block text-xs mb-1">Add load (kg)</label>
             <input
               type="number"
               step="0.1"
@@ -151,9 +180,33 @@ export default function StockPage() {
               required
             />
           </div>
-          <button type="submit" className="rounded-lg bg-brand-600 text-white px-4 py-2 text-sm">
-            Save stock
+          <button
+            type="submit"
+            disabled={busy || !ingId}
+            className="rounded-lg bg-brand-600 text-white px-4 py-2 text-sm disabled:opacity-50"
+          >
+            Add to stock
           </button>
+          <button
+            type="button"
+            disabled={busy || !ingId}
+            onClick={setExact}
+            className="rounded-lg border border-slate-300 px-4 py-2 text-sm disabled:opacity-50"
+          >
+            Set exact kg
+          </button>
+          {ingId ? (
+            <p className="w-full text-xs text-slate-600">
+              On hand now: <strong>{currentKg.toFixed(0)} kg</strong>
+              {addKg !== 0 ? (
+                <>
+                  {' '}
+                  → after add: <strong>{(currentKg + addKg).toFixed(0)} kg</strong>
+                </>
+              ) : null}
+            </p>
+          ) : null}
+          {error && <p className="w-full text-sm text-red-600">{error}</p>}
         </form>
 
         <table className="w-full text-sm bg-white rounded-xl border shadow-sm overflow-hidden">
