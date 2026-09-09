@@ -93,43 +93,55 @@ export type IngredientPercent = {
   sortOrder: number
 }
 
+function sortedLines(rows: IngredientPercent[]) {
+  return [...rows].sort((a, b) => {
+    const d = (a.sortOrder || 0) - (b.sortOrder || 0)
+    if (d !== 0) return d
+    return a.name.localeCompare(b.name)
+  })
+}
+
+/**
+ * Mixer order follows the current (from) diet line order, then any extra
+ * ingredients that only exist on the next diet. Percents are a weighted blend.
+ */
 export function blendIngredientPercents(
   fromDiet: IngredientPercent[],
   toDiet: IngredientPercent[],
   fromShare: number,
   toShare: number
 ): IngredientPercent[] {
-  const map = new Map<string, IngredientPercent>()
-  const order: string[] = []
+  const fromSorted = sortedLines(fromDiet)
+  const toSorted = sortedLines(toDiet)
+  const fromMap = new Map(fromSorted.map((r) => [r.ingredientId, r]))
+  const toMap = new Map(toSorted.map((r) => [r.ingredientId, r]))
 
-  const touch = (row: IngredientPercent, share: number) => {
-    if (!map.has(row.ingredientId)) {
-      order.push(row.ingredientId)
-      map.set(row.ingredientId, {
-        ...row,
-        percent: 0,
-      })
-    }
-    const cur = map.get(row.ingredientId)!
-    cur.percent += row.percent * share
-    cur.costPerUnit = row.costPerUnit
+  const order: string[] = []
+  for (const r of fromSorted) {
+    if (!order.includes(r.ingredientId)) order.push(r.ingredientId)
+  }
+  for (const r of toSorted) {
+    if (!order.includes(r.ingredientId)) order.push(r.ingredientId)
   }
 
-  const fromSorted = [...fromDiet].sort((a, b) => a.sortOrder - b.sortOrder)
-  const toSorted = [...toDiet].sort((a, b) => a.sortOrder - b.sortOrder)
-  fromSorted.forEach((r) => touch(r, fromShare))
-  toSorted.forEach((r) => touch(r, toShare))
-
-  return order.map((id) => {
-    const r = map.get(id)!
-    return { ...r, percent: Number(r.percent.toFixed(3)) }
-  })
+  return order
+    .map((id, idx) => {
+      const from = fromMap.get(id)
+      const to = toMap.get(id)
+      const percent = (from ? from.percent * fromShare : 0) + (to ? to.percent * toShare : 0)
+      const src = from || to!
+      return {
+        ingredientId: id,
+        name: src.name,
+        percent: Number(percent.toFixed(3)),
+        costPerUnit: (toShare > fromShare && to ? to : src).costPerUnit,
+        sortOrder: idx,
+      }
+    })
+    .filter((r) => r.percent > 0.0005)
 }
 
-export function mixFromTotalKg(
-  totalKg: number,
-  blended: IngredientPercent[]
-) {
+export function mixFromTotalKg(totalKg: number, blended: IngredientPercent[]) {
   return blended.map((b) => {
     const kg = (totalKg * b.percent) / 100
     const cost = kg * (b.costPerUnit || 0)
