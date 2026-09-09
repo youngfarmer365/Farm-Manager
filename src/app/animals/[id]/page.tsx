@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { formatWeight, formatCurrency, formatDate, formatADG } from '@/lib/utils'
-import { exactAge } from '@/lib/age'
+import { exactAge, dateAtAgeMonths, TURNS_MONTHS } from '@/lib/age'
 import { groupPensByShed, type PenRow } from '@/lib/pens'
 
 interface Option {
@@ -392,6 +392,11 @@ export default function AnimalDetailPage() {
                 className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
               />
               {age && <p className="text-xs text-slate-500 mt-1">Age: {age.label}</p>}
+              {dateOfBirth && dateAtAgeMonths(dateOfBirth, TURNS_MONTHS) && (
+                <p className="text-xs text-slate-500">
+                  17 months: {formatDate(dateAtAgeMonths(dateOfBirth, TURNS_MONTHS))}
+                </p>
+              )}
             </div>
 
             <div>

@@ -42,6 +42,29 @@ function localISODate(d: Date): string {
   return `${y}-${m}-${day}`
 }
 
+/** Add calendar months, clamping to the last day of the target month. */
+export function addCalendarMonths(isoDate: string, months: number): string | null {
+  const d = new Date(isoDate + 'T00:00:00')
+  if (Number.isNaN(d.getTime())) return null
+  const day = d.getDate()
+  d.setDate(1)
+  d.setMonth(d.getMonth() + months)
+  const last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()
+  d.setDate(Math.min(day, last))
+  return localISODate(d)
+}
+
+/** Calendar date the animal turns `months` old (from date of birth). */
+export function dateAtAgeMonths(
+  dateOfBirth: string | null | undefined,
+  months: number
+): string | null {
+  if (!dateOfBirth) return null
+  return addCalendarMonths(dateOfBirth, months)
+}
+
+export const TURNS_MONTHS = 17
+
 /** Cut-off DOB: animals born on or before this date are at least `months` months old. */
 export function dobOnOrBeforeMonthsAgo(months: number, asOf: Date = new Date()): string {
   const d = new Date(asOf.getFullYear(), asOf.getMonth(), asOf.getDate())

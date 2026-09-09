@@ -165,6 +165,7 @@ export type AnimalSortField =
   | 'days_on_farm'
   | 'age_days'
   | 'age_months'
+  | 'turns_17m'
   | 'latest_weight_kg'
   | 'adg_kg_per_day'
   | 'purchase_weight_kg'

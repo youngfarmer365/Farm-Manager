@@ -14,7 +14,8 @@ import type {
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 import { groupPensByShed, housingPens, isShed, penLabel } from '@/lib/pens'
-import { ageMonthsInRange, dobOnOrBeforeMonthsAgo, exactAge } from '@/lib/age'
+import { ageMonthsInRange, dateAtAgeMonths, dobOnOrBeforeMonthsAgo, exactAge, TURNS_MONTHS } from '@/lib/age'
+import { loadAnimalListPrefs, saveAnimalListPrefs } from '@/lib/session-pref'
 
 interface Herd {
   id: string
@@ -40,12 +41,39 @@ export default function AnimalsPage() {
   const [withdrawalByAnimal, setWithdrawalByAnimal] = useState<Record<string, number>>({})
   const [shedId, setShedId] = useState('')
   const [penId, setPenId] = useState('')
+  const [filtersReady, setFiltersReady] = useState(false)
 
   const shedGroups = groupPensByShed(pens)
   const sheds = pens.filter(isShed).sort((a, b) => a.name.localeCompare(b.name))
   const pensInSelectedShed = shedId
     ? shedGroups.grouped.find((g) => g.shed.id === shedId)?.pens || []
     : [...shedGroups.grouped.flatMap((g) => g.pens), ...shedGroups.ungrouped]
+
+  useEffect(() => {
+    const saved = loadAnimalListPrefs()
+    if (saved) {
+      setFilters(saved.filters as AnimalFilters)
+      if (saved.sort?.field) {
+        setSort({
+          field: saved.sort.field as AnimalSortField,
+          direction: saved.sort.direction,
+        })
+      }
+      setShedId(saved.shedId)
+      setPenId(saved.penId)
+    }
+    setFiltersReady(true)
+  }, [])
+
+  useEffect(() => {
+    if (!filtersReady) return
+    saveAnimalListPrefs({
+      filters: filters as Record<string, unknown>,
+      sort,
+      shedId,
+      penId,
+    })
+  }, [filtersReady, filters, sort, shedId, penId])
 
   useEffect(() => {
     async function init() {
@@ -87,7 +115,7 @@ export default function AnimalsPage() {
   }, [])
 
   const loadAnimals = useCallback(async () => {
-    if (!farmId) return
+    if (!farmId || !filtersReady) return
     setLoading(true)
     const supabase = createClient()
 
@@ -145,7 +173,13 @@ export default function AnimalsPage() {
     }
 
     const dbField =
-      sort.field === 'short_tag' ? 'tag' : sort.field === 'age_months' ? 'age_days' : sort.field
+      sort.field === 'short_tag'
+        ? 'tag'
+        : sort.field === 'age_months'
+          ? 'age_days'
+          : sort.field === 'turns_17m'
+            ? 'date_of_birth'
+            : sort.field
     query = query.order(dbField, {
       ascending: sort.field === 'short_tag' ? true : sort.direction === 'asc',
       nullsFirst: false,
@@ -182,6 +216,17 @@ export default function AnimalsPage() {
         if (ka == null) return 1
         if (kb == null) return -1
         return sort.direction === 'asc' ? ka - kb : kb - ka
+      })
+    }
+    if (sort.field === 'turns_17m') {
+      list = [...list].sort((a, b) => {
+        const ka = dateAtAgeMonths(a.date_of_birth, TURNS_MONTHS)
+        const kb = dateAtAgeMonths(b.date_of_birth, TURNS_MONTHS)
+        if (!ka && !kb) return 0
+        if (!ka) return 1
+        if (!kb) return -1
+        const cmp = ka.localeCompare(kb)
+        return sort.direction === 'asc' ? cmp : -cmp
       })
     }
     if (filters.min_age_months != null || filters.max_age_months != null) {
@@ -221,7 +266,7 @@ export default function AnimalsPage() {
     }
 
     setLoading(false)
-  }, [farmId, filters, sort, pens])
+  }, [farmId, filters, sort, pens, filtersReady])
 
   useEffect(() => {
     loadAnimals()
@@ -426,13 +471,19 @@ export default function AnimalsPage() {
       <main className="w-full px-4 py-6 lg:px-6">
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(240px,280px)_minmax(0,1fr)]">
           <aside className="print:hidden lg:order-1 order-2">
-            <AnimalFiltersPanel
-              groups={groups}
-              pens={pens}
-              herds={herds}
-              initialFilters={filters}
-              onApply={onPanelApply}
-            />
+            {filtersReady ? (
+              <AnimalFiltersPanel
+                groups={groups}
+                pens={pens}
+                herds={herds}
+                initialFilters={filters}
+                onApply={onPanelApply}
+              />
+            ) : (
+              <div className="rounded-xl border-2 border-slate-400 bg-white p-3 text-sm font-semibold text-slate-500">
+                Loading filters…
+              </div>
+            )}
           </aside>
 
           <section className="min-w-0 space-y-3 lg:order-2 order-1">

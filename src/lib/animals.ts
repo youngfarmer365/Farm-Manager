@@ -107,7 +107,13 @@ export async function getAnimals(
   // Sorting
   const ascending = sort.direction === 'asc'
   const dbField =
-    sort.field === 'short_tag' ? 'tag' : sort.field === 'age_months' ? 'age_days' : sort.field
+    sort.field === 'short_tag'
+      ? 'tag'
+      : sort.field === 'age_months'
+        ? 'age_days'
+        : sort.field === 'turns_17m'
+          ? 'date_of_birth'
+          : sort.field
   query = query.order(dbField, { ascending, nullsFirst: false })
 
   // Pagination
