@@ -4,13 +4,13 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 import { groupPensByShed, penLabel, type PenRow } from '@/lib/pens'
-import { programmeClockDay, programmeDayIndex } from '@/lib/feeding'
+import { localISODate, programmeClockDay, programmeDayIndex } from '@/lib/feeding'
 import { LoadProgramEditor } from '@/components/feeding/LoadProgramEditor'
 
 interface Program {
   id: string
   name: string
-  start_date?: string
+  start_date?: string | null
   status?: string | null
   pause_days?: number | null
   paused_on?: string | null
@@ -93,6 +93,24 @@ export default function LoadsPage() {
     loadMeta()
   }, [])
 
+  async function beginProgramIfNeeded(id: string) {
+    if (!id) return
+    const p = programs.find((x) => x.id === id)
+    if (p?.start_date) return
+    const { error } = await supabase
+      .from('feeding_programs')
+      .update({ start_date: localISODate(), status: 'active', paused_on: null })
+      .eq('id', id)
+      .is('start_date', null)
+    if (error) {
+      setError(
+        error.message.includes('null')
+          ? error.message + ' — run 012_program_start_optional.sql in Supabase.'
+          : error.message
+      )
+    }
+  }
+
   async function createLoad(e: React.FormEvent) {
     e.preventDefault()
     if (!farmId || !name.trim()) return
@@ -104,6 +122,7 @@ export default function LoadsPage() {
     })
     if (error) setError(error.message)
     else {
+      if (programId) await beginProgramIfNeeded(programId)
       setName('')
       await loadMeta()
     }
@@ -122,14 +141,13 @@ export default function LoadsPage() {
   async function startProgram(id: string) {
     const p = programs.find((x) => x.id === id)
     const extra = p?.paused_on ? Math.max(0, programmeDayIndex(p.paused_on)) : 0
-    const { error } = await supabase
-      .from('feeding_programs')
-      .update({
-        status: 'active',
-        paused_on: null,
-        pause_days: Number(p?.pause_days || 0) + extra,
-      })
-      .eq('id', id)
+    const patch: Record<string, unknown> = {
+      status: 'active',
+      paused_on: null,
+      pause_days: Number(p?.pause_days || 0) + extra,
+    }
+    if (!p?.start_date) patch.start_date = localISODate()
+    const { error } = await supabase.from('feeding_programs').update(patch).eq('id', id)
     if (error) setError(error.message + ' — run 009_program_pause.sql if columns are missing.')
     await loadMeta()
   }
@@ -145,6 +163,7 @@ export default function LoadsPage() {
       setError(error.message)
       return
     }
+    if (editProgramId) await beginProgramIfNeeded(editProgramId)
     setActiveLoad({ ...activeLoad, name: editName.trim(), program_id: editProgramId || null })
     await loadMeta()
   }
@@ -279,9 +298,13 @@ export default function LoadsPage() {
             {programs.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
+                {p.start_date ? '' : ' — not started'}
               </option>
             ))}
           </select>
+          <p className="text-xs text-slate-500">
+            Putting a programme on this load starts its cycle today if it has no start date yet.
+          </p>
           {error && <p className="text-sm text-red-600">{error}</p>}
           <button type="submit" className="rounded-lg bg-brand-600 text-white px-4 py-2 text-sm">
             Create load
@@ -301,8 +324,15 @@ export default function LoadsPage() {
                   const prog = programs.find((p) => p.id === l.program_id)
                   if (!prog) return <span className="ml-2 text-xs text-slate-400">No programme</span>
                   const paused = prog.status === 'paused' || !!prog.paused_on
+                  if (!prog.start_date) {
+                    return (
+                      <span className="ml-2 text-xs font-semibold text-slate-600">
+                        · {prog.name} · waiting to start
+                      </span>
+                    )
+                  }
                   const day = programmeClockDay({
-                    start_date: prog.start_date || new Date().toISOString().slice(0, 10),
+                    start_date: prog.start_date,
                     pause_days: prog.pause_days,
                     paused_on: prog.paused_on,
                   })
