@@ -93,3 +93,23 @@ grant execute on function public.accept_farm_invite(uuid) to authenticated;
 -- If your own login is stuck on yard/basic, promote it (change the email):
 -- update farm_members set role = 'owner'
 -- where user_id = (select id from auth.users where email = 'YOU@YOURFARM.COM');
+
+-- Each load keeps its own programme clock so one programme can run on many loads.
+alter table public.feed_loads
+  add column if not exists program_start_date date;
+alter table public.feed_loads
+  add column if not exists program_pause_days integer not null default 0;
+alter table public.feed_loads
+  add column if not exists program_paused_on date;
+alter table public.feed_loads
+  add column if not exists program_status text not null default 'active';
+
+update public.feed_loads l
+set
+  program_start_date = p.start_date,
+  program_pause_days = coalesce(p.pause_days, 0),
+  program_paused_on = p.paused_on,
+  program_status = coalesce(p.status, 'active')
+from public.feeding_programs p
+where l.program_id = p.id
+  and l.program_start_date is null;
