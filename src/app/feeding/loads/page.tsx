@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 import { groupPensByShed, penLabel, type PenRow } from '@/lib/pens'
-import { localISODate, programmeClockDay, programmeDayIndex } from '@/lib/feeding'
+import { clockFromLoad, localISODate, programmeClockDay, programmeDayIndex } from '@/lib/feeding'
 import { LoadProgramEditor } from '@/components/feeding/LoadProgramEditor'
 
 interface Program {
@@ -27,6 +27,10 @@ interface Load {
   id: string
   name: string
   program_id: string | null
+  program_start_date?: string | null
+  program_pause_days?: number | null
+  program_paused_on?: string | null
+  program_status?: string | null
 }
 
 interface LoadPen {
@@ -36,6 +40,9 @@ interface LoadPen {
   sort_order: number
   pen_name: string
 }
+
+const LOAD_CLOCK_COLS =
+  'id, name, program_id, program_start_date, program_pause_days, program_paused_on, program_status'
 
 export default function LoadsPage() {
   const [farmId, setFarmId] = useState<string | null>(null)
@@ -51,7 +58,32 @@ export default function LoadsPage() {
   const [defaultKg, setDefaultKg] = useState('0')
   const [editName, setEditName] = useState('')
   const [editProgramId, setEditProgramId] = useState('')
+  const [editStartDate, setEditStartDate] = useState('')
+  const [sqlHint, setSqlHint] = useState(false)
   const supabase = createClient()
+
+  function missingClockSql(message?: string | null) {
+    if (!message) return false
+    return /program_start_date|program_pause_days|program_paused_on|program_status/i.test(message)
+  }
+
+  async function fetchLoads(farm: string) {
+    const withClock = await supabase
+      .from('feed_loads')
+      .select(LOAD_CLOCK_COLS)
+      .eq('farm_id', farm)
+      .order('created_at', { ascending: false })
+    if (withClock.error) {
+      if (missingClockSql(withClock.error.message)) setSqlHint(true)
+      const fallback = await supabase
+        .from('feed_loads')
+        .select('id, name, program_id')
+        .eq('farm_id', farm)
+        .order('created_at', { ascending: false })
+      return (fallback.data as Load[]) || []
+    }
+    return (withClock.data as Load[]) || []
+  }
 
   async function loadMeta() {
     const {
@@ -66,7 +98,7 @@ export default function LoadsPage() {
       .maybeSingle()
     if (!membership) return
     setFarmId(membership.farm_id)
-    const [{ data: progs }, { data: pensData }, { data: loadsData }] = await Promise.all([
+    const [{ data: progs }, { data: pensData }, loadsData] = await Promise.all([
       supabase
         .from('feeding_programs')
         .select('id, name, start_date, status, pause_days, paused_on')
@@ -78,93 +110,151 @@ export default function LoadsPage() {
         .eq('farm_id', membership.farm_id)
         .eq('is_active', true)
         .order('name'),
-      supabase
-        .from('feed_loads')
-        .select('id, name, program_id')
-        .eq('farm_id', membership.farm_id)
-        .order('created_at', { ascending: false }),
+      fetchLoads(membership.farm_id),
     ])
     setPrograms((progs as Program[]) || [])
     setPens((pensData as Pen[]) || [])
-    setLoads((loadsData as Load[]) || [])
+    setLoads(loadsData)
   }
 
   useEffect(() => {
     loadMeta()
   }, [])
 
-  async function beginProgramIfNeeded(id: string) {
-    if (!id) return
-    const p = programs.find((x) => x.id === id)
-    if (p?.start_date) return
-    const { error } = await supabase
-      .from('feeding_programs')
-      .update({ start_date: localISODate(), status: 'active', paused_on: null })
-      .eq('id', id)
-      .is('start_date', null)
-    if (error) {
-      setError(
-        error.message.includes('null')
-          ? error.message + ' — run 012_program_start_optional.sql in Supabase.'
-          : error.message
-      )
-    }
+  function loadClock(l: Load) {
+    const prog = programs.find((p) => p.id === l.program_id)
+    return clockFromLoad(l, prog || null)
   }
 
   async function createLoad(e: React.FormEvent) {
     e.preventDefault()
     if (!farmId || !name.trim()) return
     setError(null)
-    const { error } = await supabase.from('feed_loads').insert({
+    const today = localISODate()
+    const row: Record<string, unknown> = {
       farm_id: farmId,
       name: name.trim(),
       program_id: programId || null,
-    })
-    if (error) setError(error.message)
-    else {
-      if (programId) await beginProgramIfNeeded(programId)
+    }
+    if (programId) {
+      row.program_start_date = today
+      row.program_pause_days = 0
+      row.program_paused_on = null
+      row.program_status = 'active'
+    }
+    const { error } = await supabase.from('feed_loads').insert(row)
+    if (error) {
+      if (missingClockSql(error.message)) {
+        setSqlHint(true)
+        const basic = await supabase.from('feed_loads').insert({
+          farm_id: farmId,
+          name: name.trim(),
+          program_id: programId || null,
+        })
+        if (basic.error) setError(basic.error.message)
+        else {
+          setName('')
+          await loadMeta()
+        }
+        return
+      }
+      setError(error.message)
+    } else {
       setName('')
       await loadMeta()
     }
   }
 
-  async function pauseProgram(id: string) {
-    const today = new Date().toISOString().slice(0, 10)
+  async function pauseLoad(load: Load) {
+    const today = localISODate()
     const { error } = await supabase
-      .from('feeding_programs')
-      .update({ status: 'paused', paused_on: today })
-      .eq('id', id)
-    if (error) setError(error.message + ' — run 009_program_pause.sql if columns are missing.')
+      .from('feed_loads')
+      .update({ program_status: 'paused', program_paused_on: today })
+      .eq('id', load.id)
+    if (error) {
+      setSqlHint(missingClockSql(error.message) || sqlHint)
+      setError(
+        missingClockSql(error.message)
+          ? 'Run 013_load_program_clock.sql in Supabase so each load can pause on its own.'
+          : error.message
+      )
+    }
     await loadMeta()
   }
 
-  async function startProgram(id: string) {
-    const p = programs.find((x) => x.id === id)
-    const extra = p?.paused_on ? Math.max(0, programmeDayIndex(p.paused_on)) : 0
-    const patch: Record<string, unknown> = {
-      status: 'active',
-      paused_on: null,
-      pause_days: Number(p?.pause_days || 0) + extra,
+  async function startLoadClock(load: Load) {
+    const clock = loadClock(load)
+    const extra = clock.paused_on ? Math.max(0, programmeDayIndex(clock.paused_on)) : 0
+    const { error } = await supabase
+      .from('feed_loads')
+      .update({
+        program_status: 'active',
+        program_paused_on: null,
+        program_pause_days: Number(clock.pause_days || 0) + extra,
+        program_start_date: clock.start_date || localISODate(),
+      })
+      .eq('id', load.id)
+    if (error) {
+      setSqlHint(missingClockSql(error.message) || sqlHint)
+      setError(
+        missingClockSql(error.message)
+          ? 'Run 013_load_program_clock.sql in Supabase so each load can start on its own.'
+          : error.message
+      )
     }
-    if (!p?.start_date) patch.start_date = localISODate()
-    const { error } = await supabase.from('feeding_programs').update(patch).eq('id', id)
-    if (error) setError(error.message + ' — run 009_program_pause.sql if columns are missing.')
     await loadMeta()
   }
 
   async function saveLoadMeta() {
     if (!activeLoad || !editName.trim()) return
     setError(null)
-    const { error } = await supabase
-      .from('feed_loads')
-      .update({ name: editName.trim(), program_id: editProgramId || null })
-      .eq('id', activeLoad.id)
-    if (error) {
-      setError(error.message)
-      return
+    const changing = (editProgramId || null) !== (activeLoad.program_id || null)
+    const patch: Record<string, unknown> = {
+      name: editName.trim(),
+      program_id: editProgramId || null,
     }
-    if (editProgramId) await beginProgramIfNeeded(editProgramId)
-    setActiveLoad({ ...activeLoad, name: editName.trim(), program_id: editProgramId || null })
+    if (!editProgramId) {
+      patch.program_start_date = null
+      patch.program_pause_days = 0
+      patch.program_paused_on = null
+      patch.program_status = 'active'
+    } else if (changing) {
+      patch.program_start_date = editStartDate || localISODate()
+      patch.program_pause_days = 0
+      patch.program_paused_on = null
+      patch.program_status = 'active'
+    } else if (editStartDate) {
+      patch.program_start_date = editStartDate
+    }
+    const { error } = await supabase.from('feed_loads').update(patch).eq('id', activeLoad.id)
+    if (error) {
+      if (missingClockSql(error.message)) {
+        setSqlHint(true)
+        const basic = await supabase
+          .from('feed_loads')
+          .update({ name: editName.trim(), program_id: editProgramId || null })
+          .eq('id', activeLoad.id)
+        if (basic.error) {
+          setError(basic.error.message)
+          return
+        }
+      } else {
+        setError(error.message)
+        return
+      }
+    }
+    setActiveLoad({
+      ...activeLoad,
+      name: editName.trim(),
+      program_id: editProgramId || null,
+      program_start_date: (patch.program_start_date as string | null) ?? activeLoad.program_start_date,
+      program_pause_days:
+        typeof patch.program_pause_days === 'number'
+          ? patch.program_pause_days
+          : activeLoad.program_pause_days,
+      program_paused_on: patch.program_paused_on === null ? null : activeLoad.program_paused_on,
+      program_status: (patch.program_status as string) || activeLoad.program_status,
+    })
     await loadMeta()
   }
 
@@ -182,6 +272,7 @@ export default function LoadsPage() {
     setActiveLoad(load)
     setEditName(load.name)
     setEditProgramId(load.program_id || '')
+    setEditStartDate(loadClock(load).start_date || '')
     setSelectedPenIds(new Set())
     const { data: rows } = await supabase
       .from('feed_load_pens')
@@ -298,13 +389,19 @@ export default function LoadsPage() {
             {programs.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
-                {p.start_date ? '' : ' — not started'}
               </option>
             ))}
           </select>
           <p className="text-xs text-slate-500">
-            Putting a programme on this load starts its cycle today if it has no start date yet.
+            The same programme can go on as many loads as you like. This load starts on its own
+            today. Pause and day number stay on this load only.
           </p>
+          {sqlHint && (
+            <p className="text-sm text-amber-800">
+              Run <span className="font-mono">013_load_program_clock.sql</span> in Supabase so
+              loads keep separate clocks.
+            </p>
+          )}
           {error && <p className="text-sm text-red-600">{error}</p>}
           <button type="submit" className="rounded-lg bg-brand-600 text-white px-4 py-2 text-sm">
             Create load
@@ -323,23 +420,20 @@ export default function LoadsPage() {
                 {(() => {
                   const prog = programs.find((p) => p.id === l.program_id)
                   if (!prog) return <span className="ml-2 text-xs text-slate-400">No programme</span>
-                  const paused = prog.status === 'paused' || !!prog.paused_on
-                  if (!prog.start_date) {
+                  const clock = loadClock(l)
+                  const paused = clock.status === 'paused' || !!clock.paused_on
+                  if (!clock.start_date) {
                     return (
                       <span className="ml-2 text-xs font-semibold text-slate-600">
-                        · {prog.name} · waiting to start
+                        \u00b7 {prog.name} \u00b7 waiting to start
                       </span>
                     )
                   }
-                  const day = programmeClockDay({
-                    start_date: prog.start_date,
-                    pause_days: prog.pause_days,
-                    paused_on: prog.paused_on,
-                  })
+                  const day = programmeClockDay(clock)
                   return (
                     <span className="ml-2 text-xs font-semibold text-slate-600">
-                      · {prog.name}
-                      {paused ? ' · paused' : ` · day ${day}`}
+                      \u00b7 {prog.name}
+                      {paused ? ' \u00b7 paused' : ` \u00b7 day ${day}`}
                     </span>
                   )
                 })()}
@@ -347,18 +441,31 @@ export default function LoadsPage() {
               {(() => {
                 const prog = programs.find((p) => p.id === l.program_id)
                 if (!prog) return null
-                const paused = prog.status === 'paused' || !!prog.paused_on
+                const clock = loadClock(l)
+                const paused = clock.status === 'paused' || !!clock.paused_on
                 return paused ? (
-                  <button type="button" onClick={() => startProgram(prog.id)} className="text-xs font-semibold text-green-800 border border-green-300 rounded-md px-2 py-1">
+                  <button
+                    type="button"
+                    onClick={() => startLoadClock(l)}
+                    className="text-xs font-semibold text-green-800 border border-green-300 rounded-md px-2 py-1"
+                  >
                     Start
                   </button>
                 ) : (
-                  <button type="button" onClick={() => pauseProgram(prog.id)} className="text-xs font-semibold text-amber-800 border border-amber-300 rounded-md px-2 py-1">
+                  <button
+                    type="button"
+                    onClick={() => pauseLoad(l)}
+                    className="text-xs font-semibold text-amber-800 border border-amber-300 rounded-md px-2 py-1"
+                  >
                     Pause
                   </button>
                 )
               })()}
-              <button type="button" onClick={() => deleteLoad(l.id)} className="text-xs text-red-600 border border-red-200 rounded-md px-2 py-1 mr-2">
+              <button
+                type="button"
+                onClick={() => deleteLoad(l.id)}
+                className="text-xs text-red-600 border border-red-200 rounded-md px-2 py-1 mr-2"
+              >
                 Delete
               </button>
             </li>
@@ -370,42 +477,72 @@ export default function LoadsPage() {
             <LoadProgramEditor
               name={editName}
               programId={editProgramId}
+              startDate={editStartDate}
               programs={programs}
               onName={setEditName}
-              onProgram={setEditProgramId}
+              onProgram={(id) => {
+                setEditProgramId(id)
+                if (id && id !== activeLoad.program_id) setEditStartDate(localISODate())
+                if (!id) setEditStartDate('')
+              }}
+              onStartDate={setEditStartDate}
               onSave={saveLoadMeta}
             />
             <div>
               <p className="text-sm font-medium mb-2">Add pens (from sheds)</p>
               <div className="flex items-center gap-2 mb-2">
                 <label className="text-xs text-slate-500">Default kg each</label>
-                <input type="number" value={defaultKg} onChange={(e) => setDefaultKg(e.target.value)} className="w-24 rounded-md border border-slate-300 px-2 py-1 text-sm" />
+                <input
+                  type="number"
+                  value={defaultKg}
+                  onChange={(e) => setDefaultKg(e.target.value)}
+                  className="w-24 rounded-md border border-slate-300 px-2 py-1 text-sm"
+                />
               </div>
               {availablePens.length === 0 ? (
                 <p className="text-sm text-slate-500">
                   No more pens available.{' '}
-                  <Link href="/pens" className="underline">Manage pens</Link>
+                  <Link href="/pens" className="underline">
+                    Manage pens
+                  </Link>
                 </p>
               ) : (
                 <ul className="border rounded-lg divide-y max-h-64 overflow-y-auto">
                   {shedGroups.grouped.map(({ shed, pens: inShed }) => (
                     <li key={shed.id}>
-                      <button type="button" className="w-full px-3 py-1.5 text-xs font-bold bg-slate-100 text-left" onClick={() => {
-                        setSelectedPenIds((prev) => {
-                          const next = new Set(prev)
-                          const ids = inShed.map((p) => p.id)
-                          const allOn = ids.every((id) => next.has(id))
-                          if (allOn) ids.forEach((id) => next.delete(id))
-                          else ids.forEach((id) => next.add(id))
-                          return next
-                        })
-                      }}>
+                      <button
+                        type="button"
+                        className="w-full px-3 py-1.5 text-xs font-bold bg-slate-100 text-left"
+                        onClick={() => {
+                          setSelectedPenIds((prev) => {
+                            const next = new Set(prev)
+                            const ids = inShed.map((p) => p.id)
+                            const allOn = ids.every((id) => next.has(id))
+                            if (allOn) ids.forEach((id) => next.delete(id))
+                            else ids.forEach((id) => next.add(id))
+                            return next
+                          })
+                        }}
+                      >
                         {shed.name} — tap to select all
                       </button>
                       {inShed.map((p) => (
-                        <button key={p.id} type="button" onClick={() => toggleSelect(p.id)} className={`w-full text-left px-3 py-2.5 text-sm flex items-center gap-2 ${selectedPenIds.has(p.id) ? 'bg-green-50' : 'hover:bg-slate-50'}`}>
-                          <span className={`h-4 w-4 rounded border flex items-center justify-center text-[10px] ${selectedPenIds.has(p.id) ? 'bg-green-600 border-green-600 text-white' : 'border-slate-300'}`}>
-                            {selectedPenIds.has(p.id) ? '✓' : ''}
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => toggleSelect(p.id)}
+                          className={`w-full text-left px-3 py-2.5 text-sm flex items-center gap-2 ${
+                            selectedPenIds.has(p.id) ? 'bg-green-50' : 'hover:bg-slate-50'
+                          }`}
+                        >
+                          <span
+                            className={`h-4 w-4 rounded border flex items-center justify-center text-[10px] ${
+                              selectedPenIds.has(p.id)
+                                ? 'bg-green-600 border-green-600 text-white'
+                                : 'border-slate-300'
+                            }`}
+                          >
+                            {selectedPenIds.has(p.id) ? '\u2713' : ''}
                           </span>
                           {p.name}
                         </button>
@@ -414,9 +551,21 @@ export default function LoadsPage() {
                   ))}
                   {shedGroups.ungrouped.map((p) => (
                     <li key={p.id}>
-                      <button type="button" onClick={() => toggleSelect(p.id)} className={`w-full text-left px-3 py-2.5 text-sm flex items-center gap-2 ${selectedPenIds.has(p.id) ? 'bg-green-50' : 'hover:bg-slate-50'}`}>
-                        <span className={`h-4 w-4 rounded border flex items-center justify-center text-[10px] ${selectedPenIds.has(p.id) ? 'bg-green-600 border-green-600 text-white' : 'border-slate-300'}`}>
-                          {selectedPenIds.has(p.id) ? '✓' : ''}
+                      <button
+                        type="button"
+                        onClick={() => toggleSelect(p.id)}
+                        className={`w-full text-left px-3 py-2.5 text-sm flex items-center gap-2 ${
+                          selectedPenIds.has(p.id) ? 'bg-green-50' : 'hover:bg-slate-50'
+                        }`}
+                      >
+                        <span
+                          className={`h-4 w-4 rounded border flex items-center justify-center text-[10px] ${
+                            selectedPenIds.has(p.id)
+                              ? 'bg-green-600 border-green-600 text-white'
+                              : 'border-slate-300'
+                          }`}
+                        >
+                          {selectedPenIds.has(p.id) ? '\u2713' : ''}
                         </span>
                         {p.name}
                       </button>
@@ -424,20 +573,44 @@ export default function LoadsPage() {
                   ))}
                 </ul>
               )}
-              <button type="button" onClick={addSelectedPens} disabled={selectedPenIds.size === 0} className="mt-2 rounded-lg bg-slate-800 text-white px-4 py-2 text-sm disabled:opacity-40">
+              <button
+                type="button"
+                onClick={addSelectedPens}
+                disabled={selectedPenIds.size === 0}
+                className="mt-2 rounded-lg bg-slate-800 text-white px-4 py-2 text-sm disabled:opacity-40"
+              >
                 Add {selectedPenIds.size || ''} selected (in list order)
               </button>
             </div>
             <ol className="space-y-2">
               {loadPens.map((lp, idx) => (
-                <li key={lp.id} className="flex flex-wrap items-center gap-2 text-sm border rounded-lg px-3 py-2">
+                <li
+                  key={lp.id}
+                  className="flex flex-wrap items-center gap-2 text-sm border rounded-lg px-3 py-2"
+                >
                   <span className="text-slate-400 w-6">{idx + 1}.</span>
                   <span className="font-medium flex-1">{lp.pen_name}</span>
-                  <input type="number" step="0.1" defaultValue={lp.daily_amount_kg} onBlur={(e) => updateKg(lp.id, e.target.value)} className="w-24 rounded-md border border-slate-300 px-2 py-1" />
+                  <input
+                    type="number"
+                    step="0.1"
+                    defaultValue={lp.daily_amount_kg}
+                    onBlur={(e) => updateKg(lp.id, e.target.value)}
+                    className="w-24 rounded-md border border-slate-300 px-2 py-1"
+                  />
                   <span className="text-xs text-slate-500">kg</span>
-                  <button type="button" className="text-xs" onClick={() => movePen(idx, -1)}>↑</button>
-                  <button type="button" className="text-xs" onClick={() => movePen(idx, 1)}>↓</button>
-                  <button type="button" className="text-xs text-red-600 border border-red-200 rounded px-2 py-0.5" onClick={() => removeLoadPen(lp.id)}>Remove</button>
+                  <button type="button" className="text-xs" onClick={() => movePen(idx, -1)}>
+                    \u2191
+                  </button>
+                  <button type="button" className="text-xs" onClick={() => movePen(idx, 1)}>
+                    \u2193
+                  </button>
+                  <button
+                    type="button"
+                    className="text-xs text-red-600 border border-red-200 rounded px-2 py-0.5"
+                    onClick={() => removeLoadPen(lp.id)}
+                  >
+                    Remove
+                  </button>
                 </li>
               ))}
             </ol>
