@@ -14,7 +14,7 @@ import type {
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 import { groupPensByShed, housingPens, isShed, penLabel } from '@/lib/pens'
-import { ageMonthsInRange, dobOnOrBeforeMonthsAgo } from '@/lib/age'
+import { ageMonthsInRange, dobOnOrBeforeMonthsAgo, exactAge } from '@/lib/age'
 
 interface Herd {
   id: string
@@ -144,7 +144,8 @@ export default function AnimalsPage() {
       query = query.or(`tag.ilike.${term},eid.ilike.${term},breed.ilike.${term}`)
     }
 
-    const dbField = sort.field === 'short_tag' ? 'tag' : sort.field
+    const dbField =
+      sort.field === 'short_tag' ? 'tag' : sort.field === 'age_months' ? 'age_days' : sort.field
     query = query.order(dbField, {
       ascending: sort.field === 'short_tag' ? true : sort.direction === 'asc',
       nullsFirst: false,
@@ -167,6 +168,20 @@ export default function AnimalsPage() {
       list = [...list].sort((a, b) => {
         const cmp = key(a.tag).localeCompare(key(b.tag), undefined, { numeric: true })
         return sort.direction === 'asc' ? cmp : -cmp
+      })
+    }
+    if (sort.field === 'age_months') {
+      const key = (a: AnimalEnriched) => {
+        const age = exactAge(a.date_of_birth)
+        return age ? age.months * 100 + age.days : null
+      }
+      list = [...list].sort((a, b) => {
+        const ka = key(a)
+        const kb = key(b)
+        if (ka == null && kb == null) return 0
+        if (ka == null) return 1
+        if (kb == null) return -1
+        return sort.direction === 'asc' ? ka - kb : kb - ka
       })
     }
     if (filters.min_age_months != null || filters.max_age_months != null) {

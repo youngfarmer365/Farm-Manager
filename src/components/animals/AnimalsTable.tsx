@@ -58,7 +58,7 @@ const ALL_COLUMNS: ColumnDef[] = [
   { id: 'purchase_from', label: 'Purchase from', defaultVisible: false, footer: 'none' },
   { id: 'purchase_date', label: 'Purchased', sortField: 'purchase_date', defaultVisible: true, footer: 'none' },
   { id: 'days_on_farm', label: 'Days', sortField: 'days_on_farm', defaultVisible: true, footer: 'both' },
-  { id: 'age_months', label: 'Age (m)', defaultVisible: true, footer: 'avg' },
+  { id: 'age_months', label: 'Age (m)', sortField: 'age_months', defaultVisible: true, footer: 'avg' },
   { id: 'purchase_weight_kg', label: 'Purch wt', sortField: 'purchase_weight_kg', defaultVisible: true, footer: 'both' },
   { id: 'latest_weight_kg', label: 'Last wt', sortField: 'latest_weight_kg', defaultVisible: true, footer: 'both' },
   { id: 'adg_kg_per_day', label: 'ADG', sortField: 'adg_kg_per_day', defaultVisible: true, footer: 'avg' },
