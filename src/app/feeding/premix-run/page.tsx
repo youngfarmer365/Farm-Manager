@@ -32,6 +32,7 @@ export default function PremixRunPage() {
   const [fillIndex, setFillIndex] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [busyId, setBusyId] = useState<string | null>(null)
   const [stockAfter, setStockAfter] = useState<number | null>(null)
   const supabase = createClient()
 
@@ -73,6 +74,28 @@ export default function PremixRunPage() {
   useEffect(() => {
     loadList()
   }, [])
+
+  async function deletePremix(p: Premix) {
+    if (!confirm(`Remove "${p.name}"? It will leave Mixer Clock on the next Refresh.`)) return
+    setError(null)
+    setBusyId(p.dietId)
+    const { error: dErr } = await supabase.from('diets').update({ is_active: false }).eq('id', p.dietId)
+    if (dErr) {
+      setBusyId(null)
+      setError(dErr.message)
+      return
+    }
+    const { error: iErr } = await supabase
+      .from('ingredients')
+      .update({ is_active: false })
+      .eq('premix_diet_id', p.dietId)
+    setBusyId(null)
+    if (iErr) {
+      setError(iErr.message)
+      return
+    }
+    await loadList()
+  }
 
   async function startPremix(p: Premix) {
     setError(null)
@@ -199,10 +222,22 @@ export default function PremixRunPage() {
             )}
             <ul className="space-y-3">
               {premixes.map((p) => (
-                <li key={p.dietId}>
-                  <button type="button" onClick={() => startPremix(p)} className="min-h-[72px] w-full rounded-2xl border-4 border-slate-600 bg-white p-4 text-left">
+                <li key={p.dietId} className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => startPremix(p)}
+                    className="min-h-[72px] min-w-0 flex-1 rounded-2xl border-4 border-slate-600 bg-white p-4 text-left"
+                  >
                     <div className="text-xl font-bold">{p.name}</div>
                     <div className="mt-1 text-sm font-semibold text-slate-600">Usual batch {p.batchKg} kg</div>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busyId === p.dietId}
+                    onClick={() => deletePremix(p)}
+                    className="min-h-[72px] w-24 shrink-0 rounded-2xl border-4 border-red-700 bg-red-50 px-2 text-base font-bold text-red-800 disabled:opacity-50"
+                  >
+                    {busyId === p.dietId ? '\u2026' : 'Delete'}
                   </button>
                 </li>
               ))}
@@ -240,7 +275,7 @@ export default function PremixRunPage() {
               <p className="mt-2 text-5xl font-bold">{current.kg.toFixed(1)} kg</p>
             </div>
             <button type="button" onClick={() => (fillIndex + 1 >= kgLines.length ? setStep('bay') : setFillIndex(fillIndex + 1))} className="min-h-[56px] w-full rounded-2xl bg-brand-700 text-lg font-bold text-white">
-              {fillIndex + 1 >= kgLines.length ? 'All in — empty into bay' : 'Loaded — next ingredient'}
+              {fillIndex + 1 >= kgLines.length ? 'All in \u2014 empty into bay' : 'Loaded \u2014 next ingredient'}
             </button>
           </>
         )}
@@ -248,10 +283,10 @@ export default function PremixRunPage() {
           <>
             <div className="rounded-3xl border-4 border-amber-700 bg-amber-50 p-6">
               <h2 className="text-2xl font-bold text-amber-950">Empty into bay</h2>
-              <p className="mt-2 font-semibold text-amber-900">{chosen?.name} · {amount} kg is mixed.</p>
+              <p className="mt-2 font-semibold text-amber-900">{chosen?.name} \u00b7 {amount} kg is mixed.</p>
             </div>
             <button type="button" disabled={saving} onClick={finish} className="min-h-[64px] w-full rounded-2xl bg-brand-800 text-xl font-bold text-white disabled:opacity-50">
-              {saving ? 'Saving…' : 'Completed'}
+              {saving ? 'Saving\u2026' : 'Completed'}
             </button>
           </>
         )}
