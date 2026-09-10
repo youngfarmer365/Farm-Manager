@@ -17,6 +17,14 @@ interface Line {
   percent: string
 }
 
+interface PremixRow {
+  id: string
+  name: string
+  cost_per_unit?: number | null
+  batch_kg?: number | null
+  ingredientId?: string | null
+}
+
 function premixCostPerKg(lines: Line[], ingredients: Ingredient[]) {
   return lines.reduce((sum, line) => {
     const ing = ingredients.find((i) => i.id === line.ingredient_id)
@@ -29,12 +37,13 @@ function premixCostPerKg(lines: Line[], ingredients: Ingredient[]) {
 export default function PremixesPage() {
   const [farmId, setFarmId] = useState<string | null>(null)
   const [ingredients, setIngredients] = useState<Ingredient[]>([])
-  const [premixes, setPremixes] = useState<{ id: string; name: string; cost_per_unit?: number | null; batch_kg?: number | null }[]>([])
+  const [premixes, setPremixes] = useState<PremixRow[]>([])
   const [name, setName] = useState('')
   const [batchKg, setBatchKg] = useState('500')
   const [lines, setLines] = useState<Line[]>([{ ingredient_id: '', percent: '' }])
   const [error, setError] = useState<string | null>(null)
   const [hidePrices, setHidePrices] = useState(false)
+  const [busyId, setBusyId] = useState<string | null>(null)
   const supabase = createClient()
 
   async function load() {
@@ -74,7 +83,11 @@ export default function PremixesPage() {
     setPremixes(
       dietRows.map((d) => {
         const asIng = list.find((i) => i.premix_diet_id === d.id)
-        return { ...d, cost_per_unit: asIng?.cost_per_unit ?? null }
+        return {
+          ...d,
+          cost_per_unit: asIng?.cost_per_unit ?? null,
+          ingredientId: asIng?.id ?? null,
+        }
       })
     )
   }
@@ -164,6 +177,32 @@ export default function PremixesPage() {
       setLines([{ ingredient_id: '', percent: '' }])
       await load()
     }
+  }
+
+  async function deletePremix(p: PremixRow) {
+    if (!confirm(`Remove "${p.name}"? It will leave Mixer Clock on the next Refresh.`)) return
+    setError(null)
+    setBusyId(p.id)
+
+    const { error: dErr } = await supabase.from('diets').update({ is_active: false }).eq('id', p.id)
+    if (dErr) {
+      setBusyId(null)
+      setError(dErr.message)
+      return
+    }
+
+    const { error: iErr } = await supabase
+      .from('ingredients')
+      .update({ is_active: false })
+      .eq('premix_diet_id', p.id)
+    if (iErr) {
+      setBusyId(null)
+      setError(iErr.message)
+      return
+    }
+
+    setBusyId(null)
+    await load()
   }
 
   const baseIngredients = ingredients.filter((i) => !i.premix_diet_id)
@@ -275,16 +314,26 @@ export default function PremixesPage() {
             </li>
           )}
           {premixes.map((p) => (
-            <li key={p.id} className="px-4 py-3 text-sm font-medium">
-              {p.name}
-              <span className="text-xs text-slate-500 font-normal ml-2">
-                {p.batch_kg ? `${p.batch_kg} kg batch · ` : ''}also in ingredients list
-              </span>
-              {!hidePrices && p.cost_per_unit != null && (
+            <li key={p.id} className="px-4 py-3 text-sm flex items-start justify-between gap-3">
+              <div>
+                <span className="font-medium">{p.name}</span>
                 <span className="text-xs text-slate-500 font-normal ml-2">
-                  €{Number(p.cost_per_unit).toFixed(4)}/kg
+                  {p.batch_kg ? `${p.batch_kg} kg batch · ` : ''}also in ingredients list
                 </span>
-              )}
+                {!hidePrices && p.cost_per_unit != null && (
+                  <span className="text-xs text-slate-500 font-normal ml-2">
+                    €{Number(p.cost_per_unit).toFixed(4)}/kg
+                  </span>
+                )}
+              </div>
+              <button
+                type="button"
+                disabled={busyId === p.id}
+                onClick={() => deletePremix(p)}
+                className="text-xs text-red-600 border border-red-200 rounded-md px-2 py-1 hover:bg-red-50 disabled:opacity-50 shrink-0"
+              >
+                {busyId === p.id ? 'Removing…' : 'Delete'}
+              </button>
             </li>
           ))}
         </ul>
