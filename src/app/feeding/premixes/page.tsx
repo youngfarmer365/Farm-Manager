@@ -29,8 +29,9 @@ function premixCostPerKg(lines: Line[], ingredients: Ingredient[]) {
 export default function PremixesPage() {
   const [farmId, setFarmId] = useState<string | null>(null)
   const [ingredients, setIngredients] = useState<Ingredient[]>([])
-  const [premixes, setPremixes] = useState<{ id: string; name: string; cost_per_unit?: number | null }[]>([])
+  const [premixes, setPremixes] = useState<{ id: string; name: string; cost_per_unit?: number | null; batch_kg?: number | null }[]>([])
   const [name, setName] = useState('')
+  const [batchKg, setBatchKg] = useState('500')
   const [lines, setLines] = useState<Line[]>([{ ingredient_id: '', percent: '' }])
   const [error, setError] = useState<string | null>(null)
   const [hidePrices, setHidePrices] = useState(false)
@@ -42,7 +43,7 @@ export default function PremixesPage() {
     setFarmId(access.farmId)
     setHidePrices(hideFeedPrices(access.role))
 
-    const [{ data: ing }, { data: diets }] = await Promise.all([
+    const [{ data: ing }, dietRes] = await Promise.all([
       supabase
         .from('ingredients')
         .select('id, name, premix_diet_id, cost_per_unit')
@@ -51,21 +52,31 @@ export default function PremixesPage() {
         .order('name'),
       supabase
         .from('diets')
-        .select('id, name')
+        .select('id, name, batch_kg')
         .eq('farm_id', access.farmId)
         .eq('diet_type', 'premix')
         .eq('is_active', true)
         .order('name'),
     ])
+    let dietRows = dietRes.data || []
+    if (dietRes.error) {
+      const fallback = await supabase
+        .from('diets')
+        .select('id, name')
+        .eq('farm_id', access.farmId)
+        .eq('diet_type', 'premix')
+        .eq('is_active', true)
+        .order('name')
+      dietRows = fallback.data || []
+    }
     const list = (ing as Ingredient[]) || []
     setIngredients(list)
-
-    const dietRows = diets || []
-    const withCost = dietRows.map((d) => {
-      const asIng = list.find((i) => i.premix_diet_id === d.id)
-      return { ...d, cost_per_unit: asIng?.cost_per_unit ?? null }
-    })
-    setPremixes(withCost)
+    setPremixes(
+      dietRows.map((d) => {
+        const asIng = list.find((i) => i.premix_diet_id === d.id)
+        return { ...d, cost_per_unit: asIng?.cost_per_unit ?? null }
+      })
+    )
   }
 
   useEffect(() => {
@@ -90,15 +101,32 @@ export default function PremixesPage() {
       return
     }
 
-    const { data: diet, error: dErr } = await supabase
+    const dRes = await supabase
       .from('diets')
       .insert({
         farm_id: farmId,
         name: name.trim(),
         diet_type: 'premix',
+        is_active: true,
+        batch_kg: Number(batchKg) || 500,
       })
       .select('id')
       .single()
+    let diet = dRes.data
+    let dErr = dRes.error
+    if (dErr) {
+      const retry = await supabase
+        .from('diets')
+        .insert({
+          farm_id: farmId,
+          name: name.trim(),
+          diet_type: 'premix',
+        })
+        .select('id')
+        .single()
+      diet = retry.data
+      dErr = retry.error
+    }
 
     if (dErr || !diet) {
       setError(dErr?.message || 'Failed to create premix diet')
@@ -132,6 +160,7 @@ export default function PremixesPage() {
     if (iErr) setError(iErr.message)
     else {
       setName('')
+      setBatchKg('500')
       setLines([{ ingredient_id: '', percent: '' }])
       await load()
     }
@@ -152,7 +181,7 @@ export default function PremixesPage() {
 
       <main className="max-w-2xl mx-auto px-4 py-8 space-y-6">
         <p className="text-sm text-slate-600">
-          Price of the mix is calculated from each ingredient’s €/kg × the percentage used.
+          Premixes saved here show on Mixer Clock after Refresh. Price is ingredient €/kg × %.
         </p>
 
         <form onSubmit={createPremix} className="bg-white rounded-xl border p-5 space-y-3 shadow-sm">
@@ -161,6 +190,14 @@ export default function PremixesPage() {
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Premix name"
+            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+          />
+          <label className="block text-xs font-semibold text-slate-500">Usual mix size (kg)</label>
+          <input
+            type="number"
+            min="1"
+            value={batchKg}
+            onChange={(e) => setBatchKg(e.target.value)}
             className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
           />
 
@@ -232,10 +269,17 @@ export default function PremixesPage() {
         </form>
 
         <ul className="bg-white rounded-xl border divide-y">
+          {premixes.length === 0 && (
+            <li className="px-4 py-6 text-sm text-slate-500">
+              No premixes yet. Save one above — it will appear on Mixer Clock after Refresh.
+            </li>
+          )}
           {premixes.map((p) => (
             <li key={p.id} className="px-4 py-3 text-sm font-medium">
               {p.name}
-              <span className="text-xs text-slate-500 font-normal ml-2">also in ingredients list</span>
+              <span className="text-xs text-slate-500 font-normal ml-2">
+                {p.batch_kg ? `${p.batch_kg} kg batch · ` : ''}also in ingredients list
+              </span>
               {!hidePrices && p.cost_per_unit != null && (
                 <span className="text-xs text-slate-500 font-normal ml-2">
                   €{Number(p.cost_per_unit).toFixed(4)}/kg
