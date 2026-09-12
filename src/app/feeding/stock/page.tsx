@@ -11,12 +11,15 @@ interface Row {
   quantity_kg: number
   avg_daily_kg: number
   days_left: number | null
+  isPremix: boolean
 }
 
 export default function StockPage() {
   const [rows, setRows] = useState<Row[]>([])
   const [farmId, setFarmId] = useState<string | null>(null)
-  const [ingredients, setIngredients] = useState<{ id: string; name: string }[]>([])
+  const [ingredients, setIngredients] = useState<
+    { id: string; name: string; premix_diet_id: string | null }[]
+  >([])
   const [ingId, setIngId] = useState('')
   const [qty, setQty] = useState('')
   const [busy, setBusy] = useState(false)
@@ -42,7 +45,7 @@ export default function StockPage() {
 
     const { data: ings } = await supabase
       .from('ingredients')
-      .select('id, name')
+      .select('id, name, premix_diet_id')
       .eq('farm_id', membership.farm_id)
       .eq('is_active', true)
       .order('name')
@@ -54,7 +57,8 @@ export default function StockPage() {
       .eq('farm_id', membership.farm_id)
 
     const since = new Date()
-    since.setDate(since.getDate() - 14)
+    since.setHours(0, 0, 0, 0)
+    since.setDate(since.getDate() - 6)
     const { data: runs } = await supabase
       .from('feed_runs')
       .select('id, finished_at')
@@ -62,19 +66,47 @@ export default function StockPage() {
       .gte('finished_at', since.toISOString())
 
     const runIds = (runs || []).map((r) => r.id)
-    let usage: Record<string, number> = {}
+    const usage: Record<string, number> = {}
+    function addUse(id: string | null | undefined, kg: number) {
+      if (!id || !(kg > 0)) return
+      usage[id] = (usage[id] || 0) + kg
+    }
+
+    const premixDietIds = (ings || []).map((i) => i.premix_diet_id).filter(Boolean) as string[]
+    const recipeByDiet = new Map<string, { ingredient_id: string; percent: number }[]>()
+    if (premixDietIds.length) {
+      const { data: rec } = await supabase
+        .from('diet_ingredients')
+        .select('diet_id, ingredient_id, percent')
+        .in('diet_id', premixDietIds)
+      for (const row of rec || []) {
+        const list = recipeByDiet.get(row.diet_id) || []
+        list.push({ ingredient_id: row.ingredient_id, percent: Number(row.percent) || 0 })
+        recipeByDiet.set(row.diet_id, list)
+      }
+    }
+    const premixDietByIng = new Map(
+      (ings || []).filter((i) => i.premix_diet_id).map((i) => [i.id, i.premix_diet_id as string])
+    )
+
     if (runIds.length) {
       const { data: used } = await supabase
         .from('feed_run_ingredients')
         .select('ingredient_id, kg')
         .in('run_id', runIds)
       for (const u of used || []) {
-        if (!u.ingredient_id) continue
-        usage[u.ingredient_id] = (usage[u.ingredient_id] || 0) + Number(u.kg)
+        const kg = Number(u.kg) || 0
+        addUse(u.ingredient_id, kg)
+        const dietId = u.ingredient_id ? premixDietByIng.get(u.ingredient_id) : null
+        if (dietId) {
+          for (const line of recipeByDiet.get(dietId) || []) {
+            addUse(line.ingredient_id, (kg * line.percent) / 100)
+          }
+        }
       }
     }
-    const daysSpan = Math.max(1, Math.min(14, runIds.length || 1))
 
+    const daysSpan = 7
     const stockMap = new Map((stock || []).map((s) => [s.ingredient_id, Number(s.quantity_kg)]))
     const list: Row[] = (ings || []).map((ing) => {
       const q = stockMap.get(ing.id) ?? 0
@@ -87,6 +119,7 @@ export default function StockPage() {
         quantity_kg: q,
         avg_daily_kg: avg,
         days_left,
+        isPremix: !!ing.premix_diet_id,
       }
     })
     setRows(list)
@@ -148,8 +181,10 @@ export default function StockPage() {
       </header>
       <main className="max-w-3xl mx-auto px-4 py-8 space-y-6">
         <p className="text-sm text-slate-600">
-          Add a new load onto what is already there. Completed feed runs still deduct use. Days left
-          uses average use from recent completed loads.
+          On hand is bags in the bay. Premix mix takes ingredients off and puts finished premix on.
+          A feeding run takes off whatever went in the wagon, including both diets when a programme
+          is blending. Days left uses the last 7 calendar days of feeding (premix recipes exploded
+          so starter inside a premix counts).
         </p>
 
         <form onSubmit={addLoad} className="bg-white rounded-xl border p-4 flex flex-wrap gap-2 items-end shadow-sm">
@@ -165,6 +200,7 @@ export default function StockPage() {
               {ingredients.map((i) => (
                 <option key={i.id} value={i.id}>
                   {i.name}
+                  {i.premix_diet_id ? ' (premix)' : ''}
                 </option>
               ))}
             </select>
@@ -214,19 +250,20 @@ export default function StockPage() {
             <tr>
               <th className="px-3 py-2">Ingredient</th>
               <th className="px-3 py-2">On hand</th>
-              <th className="px-3 py-2">Avg kg/day</th>
+              <th className="px-3 py-2">Avg kg/day (7d)</th>
               <th className="px-3 py-2">Days left</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((r) => (
               <tr key={r.ingredient_id} className="border-t">
-                <td className="px-3 py-2 font-medium">{r.name}</td>
+                <td className="px-3 py-2 font-medium">
+                  {r.name}
+                  {r.isPremix ? <span className="ml-2 text-xs text-slate-400">premix</span> : null}
+                </td>
                 <td className="px-3 py-2">{r.quantity_kg.toFixed(0)} kg</td>
                 <td className="px-3 py-2">{r.avg_daily_kg.toFixed(1)}</td>
-                <td className="px-3 py-2">
-                  {r.days_left == null ? '—' : r.days_left.toFixed(1)}
-                </td>
+                <td className="px-3 py-2">{r.days_left == null ? '—' : r.days_left.toFixed(1)}</td>
               </tr>
             ))}
           </tbody>
