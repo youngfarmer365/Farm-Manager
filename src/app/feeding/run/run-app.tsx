@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import { flushSync } from 'react-dom'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 import {
@@ -21,6 +22,7 @@ import {
   pushOpenRun,
   type SuspendedFeedingRun,
 } from '@/lib/feeding-run-store'
+import { deductStockMany } from '@/lib/feed-stock'
 
 interface Load {
   id: string
@@ -37,7 +39,7 @@ interface LoadPen {
   planned_kg: number
 }
 
-type Step = 'pick' | 'buffer' | 'fill' | 'feed' | 'summary'
+type Step = 'pick' | 'buffer' | 'fill' | 'feed' | 'saving' | 'summary'
 
 interface MixRow {
   ingredientId: string
@@ -59,6 +61,21 @@ interface SummaryPen {
   cost_per_head: number | null
 }
 
+function toMixRows(rows: { ingredientId: string; name: string; percent: number; kg: number; cost: number }[]): MixRow[] {
+  let running = 0
+  return rows.map((r) => {
+    running += Number(r.kg) || 0
+    return {
+      ingredientId: r.ingredientId,
+      name: r.name,
+      percent: r.percent,
+      kg: Number(r.kg) || 0,
+      cost: Number(r.cost) || 0,
+      cumulativeKg: Number(running.toFixed(1)),
+    }
+  })
+}
+
 export default function FeedingRunPage() {
   const [loads, setLoads] = useState<Load[]>([])
   const [farmId, setFarmId] = useState<string | null>(null)
@@ -75,6 +92,8 @@ export default function FeedingRunPage() {
   const [stepSize, setStepSize] = useState(10)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [savePct, setSavePct] = useState(0)
+  const [saveMsg, setSaveMsg] = useState('Saving…')
   const [startedAt, setStartedAt] = useState<string | null>(null)
   const [finishedAt, setFinishedAt] = useState<string | null>(null)
   const [savedRunId, setSavedRunId] = useState<string | null>(null)
@@ -246,11 +265,7 @@ export default function FeedingRunPage() {
     }
     const blended = blendIngredientPercents(fromDiet, toDiet, blend.fromShare, blend.toShare)
     const rows = mixFromTotalKg(total, blended)
-    let running = 0
-    const withCumulative = rows.map((r) => {
-      running += Number(r.kg) || 0
-      return { ingredientId: r.ingredientId, name: r.name, percent: r.percent, kg: Number(r.kg) || 0, cost: Number(r.cost) || 0, cumulativeKg: Number(running.toFixed(1)) }
-    })
+    const withCumulative = toMixRows(rows)
     setMixRows(withCumulative)
     setTotalCost(withCumulative.reduce((s, r) => s + r.cost, 0))
   }, [])
@@ -303,7 +318,6 @@ export default function FeedingRunPage() {
     const nextKg = Math.max(0, Number(pen.daily_amount_kg) + delta)
     const updated = loadPens.map((p, i) => (i === penIndex ? { ...p, daily_amount_kg: nextKg } : p))
     setLoadPens(updated)
-    await computeMix(load, updated, Number(bufferKg) || 0)
     supabase.from('feed_load_pens').update({ daily_amount_kg: nextKg }).eq('id', pen.id).then(({ error: uErr }) => {
       if (uErr) setError('No signal — amounts kept on this phone until you finish.')
       else setError(null)
@@ -312,88 +326,120 @@ export default function FeedingRunPage() {
 
   async function finishRun() {
     if (!load || !farmId) { setError('Missing farm or load'); return }
-    setSaving(true)
-    setError(null)
+    flushSync(() => {
+      setError(null)
+      setSaving(true)
+      setSavePct(8)
+      setSaveMsg('Recording feed-out…')
+      setStep('saving')
+    })
     const buf = Number(bufferKg) || 0
-    await computeMix(load, loadPens, buf)
     const pensPlanned = loadPens.reduce((s, p) => s + Number(p.planned_kg || 0), 0)
     const pensActual = loadPens.reduce((s, p) => s + Number(p.daily_amount_kg || 0), 0)
     const fillTotal = Math.max(0, pensActual + buf)
+    const stockTotal = Math.max(0, pensActual)
     const end = new Date().toISOString()
     setFinishedAt(end)
-    let finalMix: MixRow[] = mixRows
-    if (load.program_id && fillTotal > 0) {
-      const { data: prog } = await supabase.from('feeding_programs').select('start_date, pause_days, paused_on, status').eq('id', load.program_id).single()
-      const { data: phaseRows } = await supabase.from('program_phases').select('sort_order, diet_id, steady_days, transition_days').eq('program_id', load.program_id).order('sort_order')
-      if (prog && phaseRows?.length) {
-        const day = programmeClockDay(prog)
-        const blend = resolvePhaseBlend(day, phaseRows as Phase[])
-        const fromDiet = blend.fromDietId ? await loadDietPercents(blend.fromDietId) : []
-        const toDiet = blend.toDietId && blend.toDietId !== blend.fromDietId ? await loadDietPercents(blend.toDietId) : fromDiet
-        const blended = blendIngredientPercents(fromDiet, toDiet, blend.fromShare, blend.toShare)
-        const rows = mixFromTotalKg(fillTotal, blended)
-        let running = 0
-        finalMix = rows.map((r) => {
-          running += Number(r.kg) || 0
-          return { ingredientId: r.ingredientId, name: r.name, percent: r.percent, kg: Number(r.kg) || 0, cost: Number(r.cost) || 0, cumulativeKg: Number(running.toFixed(1)) }
-        })
-        setMixRows(finalMix)
-        setTotalKg(fillTotal)
-        setPensTotalKg(pensActual)
-        setTotalCost(finalMix.reduce((s, r) => s + r.cost, 0))
-      }
-    }
-    const { data: run, error: runErr } = await supabase.from('feed_runs').insert({
-      farm_id: farmId, load_id: load.id, load_name: load.name, program_id: load.program_id,
-      buffer_kg: buf, pens_planned_kg: pensPlanned, pens_actual_kg: pensActual, fill_total_kg: fillTotal,
-      started_at: startedAt || end, finished_at: end,
-    }).select('id').single()
-    if (runErr || !run) {
-      setError(runErr?.message ? `Can't finish yet — ${runErr.message}. This load is still held on the phone.` : "Can't finish yet — no signal. This load is still held on the phone.")
-      setSaving(false)
-      return
-    }
-    const fillCost = finalMix.reduce((s, r) => s + (Number(r.cost) || 0), 0)
-    const pensActualSum = loadPens.reduce((s, p) => s + Number(p.daily_amount_kg || 0), 0) || 1
-    const penRows: SummaryPen[] = []
-    for (let idx = 0; idx < loadPens.length; idx++) {
-      const p = loadPens[idx]
-      const actual = Number(p.daily_amount_kg) || 0
-      const planned = Number(p.planned_kg) || 0
-      const { count } = await supabase.from('animals').select('*', { count: 'exact', head: true }).eq('pen_id', p.pen_id).eq('status', 'active')
-      const heads = count || 0
-      const costAllocated = (fillCost * actual) / pensActualSum
-      penRows.push({
-        pen_id: p.pen_id, pen_name: p.pen_name, planned_kg: planned, actual_kg: actual,
-        animal_count: heads, kg_per_head: heads > 0 ? actual / heads : null,
-        cost_allocated: Number(costAllocated.toFixed(2)),
-        cost_per_head: heads > 0 ? Number((costAllocated / heads).toFixed(4)) : null,
-      })
-    }
-    await supabase.from('feed_run_pens').insert(penRows.map((p, idx) => ({
-      run_id: run.id, pen_id: p.pen_id, pen_name: p.pen_name, planned_kg: p.planned_kg, actual_kg: p.actual_kg,
-      sort_order: idx, animal_count: p.animal_count, kg_per_head: p.kg_per_head, cost_allocated: p.cost_allocated, cost_per_head: p.cost_per_head,
-    })))
-    setSummaryPens(penRows)
-    if (finalMix.length) {
-      await supabase.from('feed_run_ingredients').insert(finalMix.map((r, idx) => ({
-        run_id: run.id, ingredient_id: r.ingredientId, ingredient_name: r.name, percent: r.percent, kg: r.kg, cost: r.cost, sort_order: idx,
-      })))
-      for (const r of finalMix) {
-        if (!r.ingredientId || r.kg <= 0) continue
-        const { data: stock } = await supabase.from('feed_stock').select('id, quantity_kg').eq('farm_id', farmId).eq('ingredient_id', r.ingredientId).maybeSingle()
-        if (stock) {
-          await supabase.from('feed_stock').update({ quantity_kg: Math.max(0, Number(stock.quantity_kg) - r.kg), updated_at: new Date().toISOString() }).eq('id', stock.id)
-        } else {
-          await supabase.from('feed_stock').insert({ farm_id: farmId, ingredient_id: r.ingredientId, quantity_kg: 0, updated_at: new Date().toISOString() })
+    try {
+      setSavePct(22)
+      setSaveMsg('Working out ingredients from pens fed…')
+      let percents: IngredientPercent[] = mixRows.map((r, i) => ({
+        ingredientId: r.ingredientId,
+        name: r.name,
+        percent: r.percent,
+        costPerUnit: r.kg > 0 ? r.cost / r.kg : 0,
+        sortOrder: i,
+      }))
+      if (!percents.length && load.program_id) {
+        const { data: prog } = await supabase.from('feeding_programs').select('start_date, pause_days, paused_on, status').eq('id', load.program_id).single()
+        const { data: phaseRows } = await supabase.from('program_phases').select('sort_order, diet_id, steady_days, transition_days').eq('program_id', load.program_id).order('sort_order')
+        if (prog && phaseRows?.length) {
+          const day = programmeClockDay(prog)
+          const blend = resolvePhaseBlend(day, phaseRows as Phase[])
+          const fromDiet = blend.fromDietId ? await loadDietPercents(blend.fromDietId) : []
+          const toDiet = blend.toDietId && blend.toDietId !== blend.fromDietId ? await loadDietPercents(blend.toDietId) : fromDiet
+          percents = blendIngredientPercents(fromDiet, toDiet, blend.fromShare, blend.toShare)
         }
       }
+      const stockMix = percents.length && stockTotal > 0 ? toMixRows(mixFromTotalKg(stockTotal, percents)) : []
+      setMixRows(stockMix)
+      setPensTotalKg(pensActual)
+      setTotalKg(stockTotal)
+      setTotalCost(stockMix.reduce((s, r) => s + r.cost, 0))
+
+      setSavePct(40)
+      setSaveMsg('Saving load…')
+      const { data: run, error: runErr } = await supabase.from('feed_runs').insert({
+        farm_id: farmId, load_id: load.id, load_name: load.name, program_id: load.program_id,
+        buffer_kg: buf, pens_planned_kg: pensPlanned, pens_actual_kg: pensActual, fill_total_kg: fillTotal,
+        started_at: startedAt || end, finished_at: end,
+      }).select('id').single()
+      if (runErr || !run) {
+        setError(runErr?.message ? `Can't finish yet — ${runErr.message}. This load is still held on the phone.` : "Can't finish yet — no signal. This load is still held on the phone.")
+        setSaving(false)
+        setStep('feed')
+        return
+      }
+
+      setSavePct(58)
+      setSaveMsg('Saving pens…')
+      const penIds = loadPens.map((p) => p.pen_id)
+      const { data: animalRows } = penIds.length
+        ? await supabase.from('animals').select('pen_id').in('pen_id', penIds).eq('status', 'active')
+        : { data: [] as { pen_id: string }[] }
+      const headsByPen = new Map<string, number>()
+      for (const a of animalRows || []) {
+        headsByPen.set(a.pen_id, (headsByPen.get(a.pen_id) || 0) + 1)
+      }
+      const stockCost = stockMix.reduce((s, r) => s + (Number(r.cost) || 0), 0)
+      const pensActualSum = pensActual || 1
+      const penRows: SummaryPen[] = loadPens.map((p) => {
+        const actual = Number(p.daily_amount_kg) || 0
+        const planned = Number(p.planned_kg) || 0
+        const heads = headsByPen.get(p.pen_id) || 0
+        const costAllocated = (stockCost * actual) / pensActualSum
+        return {
+          pen_id: p.pen_id, pen_name: p.pen_name, planned_kg: planned, actual_kg: actual,
+          animal_count: heads, kg_per_head: heads > 0 ? actual / heads : null,
+          cost_allocated: Number(costAllocated.toFixed(2)),
+          cost_per_head: heads > 0 ? Number((costAllocated / heads).toFixed(4)) : null,
+        }
+      })
+      await Promise.all([
+        supabase.from('feed_run_pens').insert(penRows.map((p, idx) => ({
+          run_id: run.id, pen_id: p.pen_id, pen_name: p.pen_name, planned_kg: p.planned_kg, actual_kg: p.actual_kg,
+          sort_order: idx, animal_count: p.animal_count, kg_per_head: p.kg_per_head, cost_allocated: p.cost_allocated, cost_per_head: p.cost_per_head,
+        }))),
+        stockMix.length
+          ? supabase.from('feed_run_ingredients').insert(stockMix.map((r, idx) => ({
+              run_id: run.id, ingredient_id: r.ingredientId, ingredient_name: r.name, percent: r.percent, kg: r.kg, cost: r.cost, sort_order: idx,
+            })))
+          : Promise.resolve({}),
+      ])
+      setSummaryPens(penRows)
+
+      setSavePct(82)
+      setSaveMsg('Updating stock…')
+      if (stockMix.length) {
+        const stockErr = await deductStockMany(
+          farmId,
+          stockMix.map((r) => ({ ingredientId: r.ingredientId, kg: r.kg })),
+        )
+        if (stockErr) setError('Load saved, but stock update failed: ' + stockErr)
+      }
+
+      setSavePct(100)
+      setSaveMsg('Done')
+      setSavedRunId(run.id)
+      void dropOpenRun(supabase, farmId)
+      setPausedRun(null)
+      setSaving(false)
+      setStep('summary')
+    } catch (e: any) {
+      setError(e?.message ? `Can't finish yet — ${e.message}` : "Can't finish yet — no signal. This load is still held on the phone.")
+      setSaving(false)
+      setStep('feed')
     }
-    setSavedRunId(run.id)
-    setSaving(false)
-    await dropOpenRun(supabase, farmId)
-    setPausedRun(null)
-    setStep('summary')
   }
 
   const currentPen = loadPens[penIndex]
@@ -410,7 +456,7 @@ export default function FeedingRunPage() {
           </div>
         </header>
         <main className="max-w-2xl mx-auto px-4 py-8 space-y-4">
-          <p className="text-sm text-slate-600">Load → buffer → fill → pens → summary (kg/head{hidePrices ? '' : ', €/head'}, history & stock).</p>
+          <p className="text-sm text-slate-600">Load → buffer → fill → pens → summary. Stock comes from kg fed at the pens, not leftover buffer.</p>
           {pausedRun && (
             <div className="rounded-xl border-2 border-amber-700 bg-amber-50 p-4 space-y-3">
               <p className="font-bold text-amber-950">Unfinished load on this farm</p>
@@ -457,6 +503,26 @@ export default function FeedingRunPage() {
             ))}
           </div>
           <button type="button" onClick={confirmBufferAndFill} className="w-full rounded-2xl bg-green-600 text-white py-4 text-lg font-bold">Continue to fill sheet →</button>
+          <p className="text-center text-xs text-amber-900">Buffer stays in the mixer for fill. It is not taken off stock unless you dump it at a pen.</p>
+        </main>
+      </div>
+    )
+  }
+
+  if (step === 'saving') {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-slate-950 px-6 text-white">
+        <p className="text-sm font-bold uppercase tracking-wide text-green-400">Finishing load</p>
+        <h1 className="mt-2 text-center text-3xl font-bold">{load?.name}</h1>
+        <p className="mt-4 text-center text-lg font-semibold text-slate-200">{saveMsg}</p>
+        <div className="mt-8 h-4 w-full max-w-md overflow-hidden rounded-full bg-slate-800">
+          <div className="h-full rounded-full bg-green-500 transition-all duration-300" style={{ width: `${Math.max(6, savePct)}%` }} />
+        </div>
+        <p className="mt-3 text-sm text-slate-400">{savePct}%</p>
+        <p className="mt-8 max-w-sm text-center text-sm text-slate-500">Keep the screen on. Stock is taken from kg fed at the pens, not leftover buffer.</p>
+      </div>
+    )
+  }
         </main>
       </div>
     )
@@ -604,9 +670,9 @@ export default function FeedingRunPage() {
           <div className="bg-white rounded-xl border p-4 text-sm space-y-1">
             <div className="flex justify-between"><span className="text-slate-500">Started</span><span>{startedAt ? new Date(startedAt).toLocaleString('en-IE') : '—'}</span></div>
             <div className="flex justify-between"><span className="text-slate-500">Finished</span><span>{finishedAt ? new Date(finishedAt).toLocaleString('en-IE') : '—'}</span></div>
-            <div className="flex justify-between"><span className="text-slate-500">Buffer</span><span>{bufNum >= 0 ? '+' : ''}{bufNum.toFixed(0)} kg</span></div>
-            <div className="flex justify-between font-medium border-t pt-2"><span>Pens planned → actual</span><span>{pensPlanned.toFixed(0)} → {pensActual.toFixed(0)} kg</span></div>
-            <div className="flex justify-between font-medium"><span>Fill total</span><span>{totalKg.toFixed(0)} kg{!hidePrices && <> · €{totalCost.toFixed(2)}</>}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Buffer (not taken off stock)</span><span>{bufNum >= 0 ? '+' : ''}{bufNum.toFixed(0)} kg</span></div>
+            <div className="flex justify-between font-medium border-t pt-2"><span>Pens planned → fed</span><span>{pensPlanned.toFixed(0)} → {pensActual.toFixed(0)} kg</span></div>
+            <div className="flex justify-between font-medium"><span>Stock taken off</span><span>{pensActual.toFixed(0)} kg{!hidePrices && <> · €{totalCost.toFixed(2)}</>}</span></div>
           </div>
           <div className="bg-white rounded-xl border p-4">
             <h2 className="font-semibold mb-2">{hidePrices ? 'Pens (intake)' : 'Pens (intake & cost)'}</h2>
@@ -626,7 +692,7 @@ export default function FeedingRunPage() {
             </ul>
           </div>
           <div className="bg-white rounded-xl border p-4">
-            <h2 className="font-semibold mb-2">Ingredients (stock deducted)</h2>
+            <h2 className="font-semibold mb-2">Ingredients (from kg fed)</h2>
             {mixRows.length === 0 ? <p className="text-sm text-slate-500">No ingredient breakdown</p> : (
               <ul className="space-y-1 text-sm">
                 {mixRows.map((r) => (
